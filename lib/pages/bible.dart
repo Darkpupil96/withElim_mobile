@@ -1,16 +1,19 @@
 // lib/pages/bible.dart
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+
 import '../models/search_bar.dart';
-// 读取全局语言
-import '../app/app_lang.dart';
+import '../app/app_lang.dart';         // LangScope（语言）
+import '../app/auth_scope.dart';       // AuthScope（登录）
+import 'book_chapter_picker.dart';     // 书卷章节选择页
 
 const _baseUrl = 'https://withelim.com';
 typedef BibleLang = String; // 't_kjv' / 't_cn'
 
 // 书卷英文/中文名 & 章数
-const List<String> _bookNamesEn = [
+const List<String> bookNamesEn = [
   "Genesis","Exodus","Leviticus","Numbers","Deuteronomy","Joshua","Judges","Ruth","1 Samuel","2 Samuel",
   "1 Kings","2 Kings","1 Chronicles","2 Chronicles","Ezra","Nehemiah","Esther","Job","Psalms","Proverbs",
   "Ecclesiastes","Song of Solomon","Isaiah","Jeremiah","Lamentations","Ezekiel","Daniel","Hosea","Joel","Amos",
@@ -20,7 +23,7 @@ const List<String> _bookNamesEn = [
   "1 John","2 John","3 John","Jude","Revelation"
 ];
 
-const List<String> _bookNamesCn = [
+const List<String> bookNamesCn = [
   "创世记","出埃及记","利未记","民数记","申命记","约书亚记","士师记","路得记","撒母耳记上","撒母耳记下",
   "列王纪上","列王纪下","历代志上","历代志下","以斯拉记","尼希米记","以斯帖记","约伯记","诗篇","箴言",
   "传道书","雅歌","以赛亚书","耶利米书","耶利米哀歌","以西结书","但以理书","何西阿书","约珥书","阿摩司书",
@@ -31,57 +34,156 @@ const List<String> _bookNamesCn = [
 ];
 
 const List<int> _chapterCounts = [
+  // OT 39
   50,40,27,36,34,24,21,4,31,24,22,25,29,36,10,13,10,42,150,31,12,8,66,52,5,48,12,14,3,9,1,4,7,3,3,3,2,14,4,
-  28,24,21,28,16,16,13,6,6,4,5,3,6,4,3,1,13,5,5,3,5,1,1,1,22
+  // NT 27
+  28,16,24,21,28,16,16,13,6,6,4,4,5,3,6,4,3,1,13,5,5,3,5,1,1,1,22
 ];
+class BibleJumpController {
+  void Function(int b, int c, int v)? _jump;
+  void attach(void Function(int,int,int) f) => _jump = f;
+  void detach() => _jump = null;
+  void jumpTo(int b, int c, int v) => _jump?.call(b, c, v);
+  
+}
 
 class BiblePage extends StatefulWidget {
   const BiblePage({
     super.key,
     this.bookId = 41, // Mark
-    this.chapter = 6, // Mark 6
+    this.chapter = 6, // Mark 6 这是初始化页面，登录用户会被服务端覆盖
+    this.controller,      
   });
 
   final int bookId;
   final int chapter;
-
+  final BibleJumpController? controller; // ← 新增
   @override
   State<BiblePage> createState() => _BiblePageState();
 }
 
 class _BiblePageState extends State<BiblePage> {
-  late int _bookId;
+  late int _bookId; //在State 中初始化
   late int _chapter;
-  late BibleLang _lang;           // 当前语言（来自全局）
+  late BibleLang _lang;                // 当前语言（来自全局）
   late Future<List<_Verse>> _future;
 
-  bool _depsReady = false;        // 首次获取全局语言的标记
+  // 滚动控制
+  final ScrollController _scrollCtrl = ScrollController();
 
+  // ====== 新增：用于“跳到相关文本”的状态 ======
+  final Map<int, GlobalKey> _verseKeys = {}; // v -> key
+  int? _pendingVerse;                        // 待滚到的节
+  bool _handledDeepLink = false;             // 仅处理一次路由参数
+
+  // 依赖 & 同步控制
+  bool _depsReady = false;             // 首次获取全局语言的标记 这个标记用于控制首次加载时的逻辑
+  bool _restoredOnce = false;          // 恢复阅读进度只做一次
+  Timer? _syncDebounce;                // 阅读进度上传节流，防止频繁点击翻页时多次请求
+  bool _wasAuthed = false; // 记录上一次的登录状态
+// 🔹临时高亮：支持多节并发高亮（比如快速多次跳转）
+  final Set<int> _highlightedVerses = <int>{};
+  final Map<int, Timer> _highlightTimers = {};
+
+  // 高亮并在 1s 后恢复
+  void _flashVerse(int v, {Duration duration = const Duration(seconds: 1)}) {
+    // 若已有定时器，先取消，避免过早清除
+    _highlightTimers[v]?.cancel();
+    setState(() {
+      _highlightedVerses.add(v);
+    });
+    _highlightTimers[v] = Timer(duration, () {
+      if (!mounted) return;
+      setState(() {
+        _highlightedVerses.remove(v);
+      });
+      _highlightTimers.remove(v);
+    });
+  }
   @override
   void initState() {
     super.initState();
     _bookId = widget.bookId;
     _chapter = widget.chapter;
-    _lang = 't_kjv';              // 占位，真正的值在 didChangeDependencies 同步
+    _lang = 't_kjv';                   // 占位，真正的值在 didChangeDependencies 同步
     _future = Future.value(const <_Verse>[]); // 等待 didChangeDependencies 触发真实请求
+    
   }
 
+  /* -------------------- 数据请求 & 同步 -------------------- */
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final newLang = LangScope.of(context).lang; // 读取全局语言（会注册依赖）
-    if (!_depsReady) {
-      _depsReady = true;
+
+    // ✅ 注册对 AuthScope 的依赖：后续登录状态变化会触发本方法
+    final auth = AuthScope.of(context);
+    final newLang = LangScope.of(context).lang;
+
+    if (!_depsReady) { //如果还没准备好
+      // 首次初始化：直接按当前状态走一遍
       _lang = newLang;
-      _future = _fetchChapter();
+
+      if (auth.isAuthed) {
+        _wasAuthed = true;
+        _initFromServerFirst();   // 先 /api/auth/me，再决定拉哪一章
+      } else {
+        setState(() {
+          _depsReady = true;      // 访客：直接按默认拉
+          _future = _fetchChapter();// 用“默认的”书卷+章节+语言拉经文
+        });
+        // 首次已就绪时尝试处理路由参数
+        WidgetsBinding.instance.addPostFrameCallback((_) => _handleDeepLinkIfAny());
+      }
       return;
     }
+
+    // ✅ 监听“未登录 → 已登录”的过渡：刚登录完也要首帧初始化一次
+    if (auth.isAuthed && !_wasAuthed) {
+      _wasAuthed = true;
+      _restoredOnce = false;      // 允许再次从服务端恢复
+      _initFromServerFirst();
+      return;                     // 等待首帧流程结束
+    }
+
+    // 监听“已登录 → 退出登录”的过渡：这里不强制回到默认章节
+    if (!auth.isAuthed && _wasAuthed) {
+      _wasAuthed = false;
+      // 退出登录后继续保持当前章节，但不再从服务端恢复
+    }
+
+    // ✅ 语言变化：刷新并同步到服务端
     if (newLang != _lang) {
       setState(() {
         _lang = newLang;
-        _future = _fetchChapter(); // 语言变化 → 重新请求
+        _future = _fetchChapter();
       });
+      _maybeSyncLanguage(newLang);
     }
+
+    // 已经就绪时，每次依赖变化后都尝试处理一次路由参数（只会生效一次）
+    _handleDeepLinkIfAny();
+  }
+
+  Future<void> _initFromServerFirst() async {
+    await _tryRestoreFromServer(firstInit: true); // 会在内部设置 _bookId/_chapter/_lang
+    if (!mounted) return;
+    setState(() {
+      _depsReady = true;           // ✅ 到这一步再放开 UI
+      _future = _fetchChapter();   // 用“（可能被服务端纠正后的）书卷+章节+语言”拉经文
+    });
+    // 首帧加载后尝试处理路由参数
+    WidgetsBinding.instance.addPostFrameCallback((_) => _handleDeepLinkIfAny());
+  }
+
+  @override
+  void dispose() {
+        for (final t in _highlightTimers.values) {
+      t.cancel();
+    }
+    _highlightTimers.clear();
+    _syncDebounce?.cancel();
+    _scrollCtrl.dispose();
+    super.dispose();
   }
 
   Future<List<_Verse>> _fetchChapter() async {
@@ -97,39 +199,277 @@ class _BiblePageState extends State<BiblePage> {
     return verses;
   }
 
+  // ← 登录用户时，从服务器恢复阅读进度 & 语言
+  Future<void> _tryRestoreFromServer({bool firstInit = false}) async {
+    if (_restoredOnce) return;
+    _restoredOnce = true;
+
+    final auth = AuthScope.of(context);
+    if (!auth.isAuthed) return;
+
+    try {
+      final res = await http.get(
+        Uri.parse('$_baseUrl/api/auth/me'),
+        headers: {'Authorization': 'Bearer ${auth.token!}'},
+      );
+      if (res.statusCode != 200) return;
+
+      final j = json.decode(res.body) as Map<String, dynamic>;
+      final int? rb = (j['reading_book'] as num?)?.toInt();
+      final int? rc = (j['reading_chapter'] as num?)?.toInt();
+      final String? serverLang = j['language'] as String?;
+
+      // 以服务端语言为准（和 Web 一致）
+      if (serverLang != null && serverLang != _lang) {
+        LangScope.of(context).setLang(serverLang);
+        _lang = serverLang; // 本地也立刻对齐，供后续 _fetchChapter 使用
+      }
+
+      // 以服务端阅读进度为准
+      if (rb != null && rc != null && rb >= 1 && rb <= 66 && rc >= 1) {
+        _bookId = rb;
+        _chapter = rc;
+        // 首帧模式：这里只修正状态，不立即 setState+_fetchChapter（交给 _initFromServerFirst 统一触发）
+        if (!firstInit) {
+          setState(() { _future = _fetchChapter(); });
+          _scrollToTop();
+        }
+      }
+    } catch (_) {
+      // 可加 debugPrint 便于排错
+    }
+  }
+
+  Map<String, String> _authedJsonHeaders(String token) => {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      };
+
+  Future<void> _maybeSyncLanguage(String lang) async {
+    final auth = AuthScope.of(context);
+    if (!auth.isAuthed) return;
+    try {
+      await http.post(
+        Uri.parse('$_baseUrl/api/auth/update'),
+        headers: _authedJsonHeaders(auth.token!),
+        body: jsonEncode({'language': lang}),
+      );
+    } catch (_) {}
+  }
+
+  // —— 阅读进度：去抖 + 覆盖写入（支持乐观）
+  void _scheduleSyncReading() {
+    _syncDebounce?.cancel();
+    _syncDebounce = Timer(const Duration(milliseconds: 300), _maybeSyncReading);
+  }
+
+  Future<void> _maybeSyncReading() async {
+    final auth = AuthScope.of(context);
+    if (!auth.isAuthed) return;
+
+    // ✅ 乐观更新到全局（其它页面立刻拿到最新“正在读”）
+    auth.updateReading(book: _bookId, chapter: _chapter);
+
+    try {
+      await http.post(
+        Uri.parse('$_baseUrl/api/auth/update-reading'),
+        headers: _authedJsonHeaders(auth.token!),
+        body: jsonEncode({'reading_book': _bookId, 'reading_chapter': _chapter}),
+      );
+    } catch (_) {/* 通常不回滚 */}
+  }
+
+  /* -------------------- 跳到相关经文（核心新增） -------------------- */
+
+  /// 切换到目标书卷/章节并等待加载完成
+  Future<void> _gotoChapter(int b, int c) async {
+    setState(() {
+      _bookId = b;
+      _chapter = c;
+      _future = _fetchChapter();
+    });
+    await _future; // 等待 FutureBuilder 的数据准备好
+     _scheduleSyncReading(); // ✅ 节流上传
+  }
+
+  /// 滚动到第 v 节（使用 GlobalKey，更稳）
+  void _scrollToVerse(int v) {
+    final key = _verseKeys[v];
+    final ctx = key?.currentContext;
+    if (ctx != null) {
+      Scrollable.ensureVisible(
+        ctx,
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeOut,
+        alignment: 0.08,
+      );
+    }
+  }
+
+  /// 接收 Search 页传来的 {'b','c','v'}，完成“切章 + 定位”
+  void _handleDeepLinkIfAny() {
+    if (_handledDeepLink) return;
+    final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+    if (args == null) return;
+
+    final int b = (args['b'] as num?)?.toInt() ?? 1;
+    final int c = (args['c'] as num?)?.toInt() ?? 1;
+    final int v = (args['v'] as num?)?.toInt() ?? 1;
+
+    _handledDeepLink = true;
+    _pendingVerse = v;
+
+    final bool needReload = (_bookId != b) || (_chapter != c);
+
+    if (needReload) {
+      _gotoChapter(b, c).whenComplete(() {
+        if (!mounted || _pendingVerse == null) return;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _scrollToVerse(_pendingVerse!);
+            _flashVerse(v);
+          _pendingVerse = null;
+        });
+      });
+    } else {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _scrollToVerse(v);
+         _flashVerse(_pendingVerse!);
+        _pendingVerse = null;
+      });
+    }
+  }
+
+  /* -------------------- 交互 & 导航 -------------------- */
+
+  // 滚到顶部（已挂载就直接滚；未挂载就下一帧滚）
+  void _scrollToTop() {
+    void doJump() {
+      if (_scrollCtrl.hasClients) {
+        _scrollCtrl.jumpTo(0);
+      }
+    }
+    if (_scrollCtrl.hasClients) {
+      doJump();
+    } else {
+      WidgetsBinding.instance.addPostFrameCallback((_) => doJump());
+    }
+  }
+
+  // 统一的“重新取数 + 回到顶部”
+  void _reload() {
+    setState(() {
+      _future = _fetchChapter();
+    });
+    _scrollToTop();
+  }
+
   void _goPrev() {
     if (_chapter > 1) {
-      setState(() { _chapter -= 1; _future = _fetchChapter(); });
+      setState(() {
+        _chapter -= 1;
+        _future = _fetchChapter();
+      });
+      _reload();
+      _scheduleSyncReading(); // ✅ 节流上传
       return;
     }
     if (_bookId > 1) {
-      setState(() { _bookId -= 1; _chapter = _chapterCounts[_bookId - 1]; _future = _fetchChapter(); });
+      setState(() {
+        _bookId -= 1;
+        _chapter = _chapterCounts[_bookId - 1];
+        _future = _fetchChapter();
+      });
+      _reload();
+      _scheduleSyncReading(); // ✅ 节流上传
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Already at the first chapter')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Already at the first chapter')),
+      );
     }
   }
 
   void _goNext() {
     final max = _chapterCounts[_bookId - 1];
     if (_chapter < max) {
-      setState(() { _chapter += 1; _future = _fetchChapter(); });
+      setState(() {
+        _chapter += 1;
+        _future = _fetchChapter();
+      });
+      _reload();
+      _scheduleSyncReading(); // ✅ 节流上传
       return;
     }
     if (_bookId < 66) {
-      setState(() { _bookId += 1; _chapter = 1; _future = _fetchChapter(); });
+      setState(() {
+        _bookId += 1;
+        _chapter = 1;
+        _future = _fetchChapter();
+      });
+      _reload();
+      _scheduleSyncReading(); // ✅ 节流上传
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Already at the last chapter')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Already at the last chapter')),
+      );
     }
   }
 
-  String _chapterCn(int n) {
-    const numerals = ['零','一','二','三','四','五','六','七','八','九'];
-    if (n < 10) return '第${numerals[n]}章';
-    if (n < 20) return '第十${n % 10 == 0 ? '' : numerals[n % 10]}章';
-    final tens = n ~/ 10;
-    final ones = n % 10;
-    return '第${numerals[tens]}十${ones == 0 ? '' : numerals[ones]}章';
+String _chapterCn(int n) {
+  assert(n >= 1 && n <= 999);
+  const numerals = ['零','一','二','三','四','五','六','七','八','九'];
+
+  String under100(int x, {bool forceTenOne = false}) {
+    if (x < 10) return numerals[x];
+    if (x < 20) {
+      final ones = x % 10;
+      // 10–19：在百位之后出现时用“**一**十…”，否则“十…”
+      final tenHead = forceTenOne ? '一十' : '十';
+      return '$tenHead${ones == 0 ? '' : numerals[ones]}';
+    }
+    final tens = x ~/ 10;
+    final ones = x % 10;
+    return '${numerals[tens]}十${ones == 0 ? '' : numerals[ones]}';
   }
+
+  String toCn(int x) {
+    if (x < 100) return under100(x);
+    final hundreds = x ~/ 100;
+    final rest = x % 100;
+    if (rest == 0) return '${numerals[hundreds]}百';
+    if (rest < 10) return '${numerals[hundreds]}百零${numerals[rest]}';
+    // 10–19 在百位后要写成“一十…”
+    return '${numerals[hundreds]}百${under100(rest, forceTenOne: true)}';
+  }
+
+  return '第${toCn(n)}章';
+}
+  Future<void> _openBookChapterPicker() async {
+    final picked = await Navigator.push<PickResult>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => BookChapterPickerPage(
+          lang: _lang,
+          initialBookId: _bookId,
+          initialChapter: _chapter, // 用于高亮
+          bookNamesEn: bookNamesEn,
+          bookNamesCn: bookNamesCn,
+          chapterCounts: _chapterCounts,
+        ),
+      ),
+    );
+
+    if (picked != null) {
+      setState(() {
+        _bookId = picked.bookId;
+        _chapter = picked.chapter;
+        _future = _fetchChapter();
+      });
+      _reload();
+      _scheduleSyncReading(); // ✅ 节流上传
+    }
+  }
+
+  /* -------------------- UI -------------------- */
 
   @override
   Widget build(BuildContext context) {
@@ -139,7 +479,10 @@ class _BiblePageState extends State<BiblePage> {
       child: Column(
         children: [
           // 顶部固定：搜索框
-          AppSearchBar(),
+             const Padding(
+        padding: EdgeInsets.fromLTRB(16, 10, 16, 0), // 左16  顶10 右16  底0
+        child: AppSearchBar(),
+      ),
 
           // 中间：只滚动经文（标题作为第 0 项）
           Expanded(
@@ -154,57 +497,75 @@ class _BiblePageState extends State<BiblePage> {
                       if (snap.hasError) {
                         return _ErrorBox(
                           message: 'Failed to load: ${snap.error}',
-                          onRetry: () => setState(() => _future = _fetchChapter()),
+                          onRetry: _reload,
                         );
                       }
                       final verses = snap.data ?? const <_Verse>[];
                       if (verses.isEmpty) {
                         return _ErrorBox(
                           message: 'No verses returned.',
-                          onRetry: () => setState(() => _future = _fetchChapter()),
+                          onRetry: _reload,
                         );
                       }
 
                       final textTheme = Theme.of(context).textTheme;
                       final isCn = _lang == 't_cn';
                       final headerTitle = isCn
-                          ? _chapterCn(_chapter)                            // 中文只显示“第…章”
-                          : '${_bookNamesEn[_bookId - 1]} $_chapter';       // 英文：Book + chapter
+                          ? _chapterCn(_chapter)                          // 中文只显示“第…章”
+                          : '${bookNamesEn[_bookId - 1]} $_chapter';     // 英文：Book + chapter
 
                       return ListView.builder(
+                        controller: _scrollCtrl,
+                          cacheExtent: 20000, // 粗暴地多建一些 缓存，避免快速翻页时白屏
                         padding: const EdgeInsets.fromLTRB(32, 8, 32, 8),
                         itemCount: verses.length + 1, // +1 给标题
                         itemBuilder: (context, i) {
                           if (i == 0) {
                             // ✅ 标题放入滚动区域
-                      return Padding(
-                            padding: const EdgeInsets.only(top: 14, bottom: 28),
-                            child: Column(
-                         children: [
-                                Text(
-                                (isCn ? '${_bookNamesCn[_bookId - 1]} $headerTitle':headerTitle),
-                                  textAlign: TextAlign.center,
-                                  style: (isCn ? textTheme.headlineMedium : textTheme.displaySmall)
-                                   ?.copyWith(fontWeight: FontWeight.w800),
+                            return Padding(
+                              padding: const EdgeInsets.only(top: 14, bottom: 28),
+                              child: Column(
+                                children: [
+                                  Text(
+                                    (isCn
+                                        ? '${bookNamesCn[_bookId - 1]} $headerTitle'
+                                        : headerTitle),
+                                    textAlign: TextAlign.center,
+                                    style: (isCn ? textTheme.headlineMedium : textTheme.displaySmall)
+                                        ?.copyWith(fontWeight: FontWeight.w800),
                                   ),
-                                 const SizedBox(height: 20), // 标题与线之间留点空隙
-                     Center(
-                        child: SizedBox(
-                          width: 240, // 你想要的宽度
-                       child: Divider(
-                                 thickness: 1,
-                                 height: 1,
-                              color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.5),
-                                ),
+                                  const SizedBox(height: 20),
+                                  Center(
+                                    child: SizedBox(
+                                      width: 240,
+                                      child: Divider(
+                                        thickness: 1,
+                                        height: 1,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .outlineVariant
+                                            .withOpacity(0.5),
                                       ),
-                        ),
-                              ],
-                            ),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             );
-
                           }
                           final v = verses[i - 1];
-                          return _VerseParagraph(verse: v);
+
+                          // ✅ 关键：给“每一节”挂上 key，便于 ensureVisible 精准定位
+return Align(
+  alignment: Alignment.centerLeft,
+  child: KeyedSubtree(
+    key: _verseKeys.putIfAbsent(v.number, () => GlobalKey()),
+    child: _VerseParagraph(
+      verse: v,
+      highlighted: _highlightedVerses.contains(v.number),
+    ),
+  ),
+);
+
                         },
                       );
                     },
@@ -212,17 +573,19 @@ class _BiblePageState extends State<BiblePage> {
           ),
 
           // 底部分割线 + 固定翻章条
-          Divider(height: 1,  color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.5),),
+          Divider(
+            height: 1,
+            color: Theme.of(context).colorScheme.outlineVariant.withOpacity(.5),
+          ),
           Builder(
             builder: (context) {
               final isCn = _lang == 't_cn';
-              final label = isCn
-                  ? _chapterCn(_chapter)
-                  : '${_bookNamesEn[_bookId - 1]} $_chapter';
+              final label = isCn ? _chapterCn(_chapter) : '${bookNamesEn[_bookId - 1]} $_chapter';
               return _BottomPager(
                 label: label,
                 onPrev: _goPrev,
                 onNext: _goNext,
+                onLabelTap: _openBookChapterPicker, // 点击标题打开选择器
               );
             },
           ),
@@ -233,9 +596,6 @@ class _BiblePageState extends State<BiblePage> {
 }
 
 /* -------------------- UI bits -------------------- */
-
-
-
 
 class _ErrorBox extends StatelessWidget {
   const _ErrorBox({required this.message, required this.onRetry});
@@ -269,58 +629,73 @@ class _BottomPager extends StatelessWidget {
     required this.label,
     required this.onPrev,
     required this.onNext,
+    required this.onLabelTap,
   });
 
   final String label;
   final VoidCallback onPrev;
   final VoidCallback onNext;
+  final VoidCallback? onLabelTap;
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return Container(
-      // 这里保留你之前的较大内边距设置；如需更紧凑可改为 horizontal: 12
-      padding: const EdgeInsets.symmetric(horizontal: 100, vertical: 15),
-      child: Row(
-        children: [
-          _RoundIconBtn(icon: Icons.chevron_left_rounded, onTap: onPrev),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              label,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 18),
-              overflow: TextOverflow.ellipsis,
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 14), // 外边距
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(999),
+        child: Material(
+          color: cs.surface,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(999),
+            side: BorderSide(color: cs.outlineVariant.withOpacity(.5)),
+          ),
+          child: InkWell(
+            onTap: onLabelTap,
+            child: IntrinsicWidth(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minWidth: 200),
+                child: SizedBox(
+                  height: 44,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.max,
+                    children: [
+                      SizedBox(
+                        width: 40,
+                        child: IconButton(
+                          onPressed: onPrev,
+                          icon: const Icon(Icons.chevron_left_rounded),
+                          splashRadius: 22,
+                          padding: EdgeInsets.zero,
+                        ),
+                      ),
+                      Expanded(
+                        child: Center(
+                          child: Text(
+                            label,
+                            textAlign: TextAlign.center,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      ),
+                      SizedBox(
+                        width: 40,
+                        child: IconButton(
+                          onPressed: onNext,
+                          icon: const Icon(Icons.chevron_right_rounded),
+                          splashRadius: 22,
+                          padding: EdgeInsets.zero,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
           ),
-          const SizedBox(width: 8),
-          _RoundIconBtn(icon: Icons.chevron_right_rounded, onTap: onNext),
-        ],
-      ),
-    );
-  }
-}
-
-class _RoundIconBtn extends StatelessWidget {
-  const _RoundIconBtn({required this.icon, required this.onTap});
-  final IconData icon;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return InkResponse(
-      onTap: onTap,
-      radius: 22,
-      customBorder: const CircleBorder(),
-      child: Container(
-        width: 36,
-        height: 36,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(color: cs.outlineVariant.withOpacity(.7)),
         ),
-        child: Icon(icon, size: 22, color: cs.onSurface),
       ),
     );
   }
@@ -333,35 +708,45 @@ class _Verse {
 }
 
 class _VerseParagraph extends StatelessWidget {
-  const _VerseParagraph({required this.verse});
+  const _VerseParagraph({required this.verse, this.highlighted = false});
   final _Verse verse;
+  final bool highlighted;
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
 
-    // 放大正文字号（22），节号更小（12）+ 更淡；统一行高 1.6
+    // 根据 highlighted 切换颜色和粗细
     final body = Theme.of(context).textTheme.bodyMedium?.copyWith(
-      fontSize: 20,
-      height: 1.6,
-      color: cs.onSurface,
-    );
+          fontSize: 20,
+          height: 1.6,
+          color: highlighted ? cs.primary : cs.onSurface,
+          fontWeight: highlighted ? FontWeight.w700 : FontWeight.w400,
+        );
+
     final numberStyle = body?.copyWith(
       fontSize: 12,
-      height: 1.6,
-      color: cs.onSurface.withOpacity(.60),
-      fontWeight: FontWeight.w600,
+      color: highlighted
+          ? cs.primary.withOpacity(.90)
+          : cs.onSurface.withOpacity(.60),
+      fontWeight: highlighted ? FontWeight.w800 : FontWeight.w600,
     );
 
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: RichText(
-        text: TextSpan(
-          children: [
-            TextSpan(text: '[${verse.number}]', style: numberStyle),
-            const TextSpan(text: ' '),
-            TextSpan(text: verse.text, style: body),
-          ],
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 200),
+      switchInCurve: Curves.easeOut,
+      switchOutCurve: Curves.easeOut,
+      child: Padding(
+        key: ValueKey<bool>(highlighted), // 触发渐变
+        padding: const EdgeInsets.only(bottom: 12),
+        child: RichText(
+          text: TextSpan(
+            children: [
+              TextSpan(text: '[${verse.number}]', style: numberStyle),
+              const TextSpan(text: ' '),
+              TextSpan(text: verse.text, style: body),
+            ],
+          ),
         ),
       ),
     );

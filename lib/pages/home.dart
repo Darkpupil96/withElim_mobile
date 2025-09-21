@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../app/app_lang.dart'; // ← 引入全局语言
-
+import '../models/search_bar.dart'; // ← 引入搜索页
 class HomeTab extends StatelessWidget {
   const HomeTab({super.key});
 
@@ -11,7 +11,7 @@ class HomeTab extends StatelessWidget {
     final isCn = lang == 't_cn';
 
     // 文案（随语言切换）
-    final searchHint     = isCn ? '搜索圣经、祷告、社群…' : 'Search Bible, prayers, communities...';
+   
     final dailyTitle     = isCn ? '每日经文' : 'Daily Scripture';
     final todaysReading  = isCn ? '今日阅读' : "Today's Reading";
     final shareTooltip   = isCn ? '分享' : 'Share';
@@ -26,7 +26,7 @@ class HomeTab extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _SearchBar(hint: searchHint),
+            AppSearchBar(), // 搜索栏
 
             // Daily Scripture
             Card(
@@ -150,31 +150,7 @@ class HomeTab extends StatelessWidget {
 
 /* ------------- 小组件（可后续迁移到 lib/widgets/） ------------- */
 
-class _SearchBar extends StatelessWidget {
-  const _SearchBar({required this.hint});
-  final String hint;
 
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: cs.surfaceContainerHighest.withValues(alpha: 0.8),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: TextField(
-        enabled: false,
-        decoration: InputDecoration(
-          hintText: hint,
-          prefixIcon: const Icon(Icons.search),
-          border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(vertical: 14),
-        ),
-      ),
-    );
-  }
-}
 
 class _SectionTitle extends StatelessWidget {
   final String text;

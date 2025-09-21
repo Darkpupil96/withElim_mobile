@@ -15,8 +15,8 @@ class LangScope extends InheritedNotifier<LangController> {
   const LangScope({
     super.key,
     required LangController controller,
-    required Widget child,
-  }) : super(notifier: controller, child: child);
+    required super.child,
+  }) : super(notifier: controller);
 
   static LangController of(BuildContext context) {
     final scope = context.dependOnInheritedWidgetOfExactType<LangScope>();

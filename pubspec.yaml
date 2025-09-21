@@ -31,7 +31,7 @@ dependencies:
   flutter:
     sdk: flutter
   flutter_svg: ^2.0.10+1 # For SVG support
-
+  scrollable_positioned_list: ^0.3.8
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
