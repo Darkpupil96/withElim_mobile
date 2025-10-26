@@ -18,6 +18,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # of the product and file versions while build-number is used as the build suffix.
 version: 1.0.0+1
 
+
 environment:
   sdk: ^3.8.1
 
@@ -40,6 +41,9 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  flutter_launcher_icons: ^0.13.1
+  flutter_native_splash: ^2.4.0
+
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
@@ -90,3 +94,22 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/images/icon.png"  # 你的图标路径
+  adaptive_icon_background: "#ffffff"     # Android 自适应图标背景（可用颜色或图片）
+  adaptive_icon_foreground: "assets/images/icon.png"  # 可选前景图
+
+
+flutter_native_splash:
+  color: "#FFFFFF"                     # 启动底色
+  image: assets/images/icon.png   # 居中显示的图（建议 1024x1024，无圆角）
+  color_dark: "#000000"                # 深色模式底色（可选）
+  image_dark: assets/images/icon.png # 深色图（可选）
+  android: true
+  ios: true
+  android_12:
+    color: "#FFFFFF"                   # A12 需要单独配置
+    image: assets/images/icon.png
+    icon_background_color: "#FFFFFF"   # 可选，A12 圆形底色

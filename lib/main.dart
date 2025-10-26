@@ -6,7 +6,7 @@ import 'pages/login_step_one.dart';
 import 'pages/login_step_two.dart';
 import 'pages/register.dart';
 import 'app/auth_scope.dart';  
-import 'pages/search_page.dart'; // ⬅️ 新增：引入搜索页
+import 'pages/prayer.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 void main() => runApp(const WithElimApp());
@@ -400,7 +400,7 @@ class _PrayerTab extends StatelessWidget {
   const _PrayerTab({super.key});
   @override
   Widget build(BuildContext context) {
-    return const Center(child: Text('Prayer (WIP)', style: TextStyle(fontWeight: FontWeight.w600)));
+    return PrayerTabPage();
   }
 }
 

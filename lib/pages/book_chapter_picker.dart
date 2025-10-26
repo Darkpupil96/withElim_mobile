@@ -136,70 +136,84 @@ class _BookChapterPickerPageState extends State<BookChapterPickerPage> {
         ),
         title: Text(isCn ? '选择书卷与章节' : 'Choose Book & Chapter'),
       ),
-      body: SafeArea(
-        child: ListView( //这是一个长列表，包含搜索框和所有书卷卡片，是懒加载的，当元素进入可视区时才构建，过于大的元素会导致无法获得正确的offset，因此需要设置cacheExtent
-          controller: _scroll,
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
-          cacheExtent: 5000, // 提前布局更多离屏子项，降低偏移异常
-          children: [
-            // 搜索框（若要换成项目里的可输入 SearchBar，这里替换）
-            TextField(
-              onChanged: (v) => setState(() => _q = v.trim()),
-              decoration: InputDecoration(
-                prefixIcon: const Icon(Icons.search),
-                hintText: isCn ? '搜索书卷…' : 'Search book…',
-                filled: true,
-                fillColor: cs.surfaceContainerHighest.withOpacity(.8),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
-                contentPadding: const EdgeInsets.symmetric(vertical: 12),
+body: SafeArea(
+  child: Stack(
+    children: [
+      // —— 底层：可滚动列表
+      ListView(
+        controller: _scroll,
+        padding: const EdgeInsets.fromLTRB(12, 72, 12, 24), // 顶部留出搜索栏空间
+        cacheExtent: 5000,
+        children: [
+          // 这里删除原来的 TextField（因为我们把它移到固定层）
+          // const SizedBox(height: 12),  // 可以删掉
+
+          // 自定义手风琴列表
+          for (final id in ids) ...[
+            _BookCard(
+              key: _itemKeys.putIfAbsent(id, () => GlobalKey()),
+              title: _bookName(id),
+              expanded: _expanded == id,
+              onTapHeader: () {
+                setState(() {
+                  _expanded = (_expanded == id) ? null : id;
+                });
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  _ensureVisibleByKey(_itemKeys[id]);
+                  if (id == widget.initialBookId) {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      _ensureVisibleByKey(_highlightKey);
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        _scrollToKey(_highlightKey, animated: true);
+                      });
+                    });
+                  } else {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      _scrollToKey(_itemKeys[id]!, animated: true);
+                    });
+                  }
+                });
+              },
+              chapterArea: _ChapterSquares(
+                count: widget.chapterCounts[id - 1],
+                current: (id == widget.initialBookId)
+                    ? widget.initialChapter
+                    : null,
+                highlightKey: (id == widget.initialBookId)
+                    ? _highlightKey
+                    : null,
+                onPick: (n) => Navigator.pop(context, PickResult(id, n)),
               ),
             ),
             const SizedBox(height: 12),
-
-            // 自定义手风琴列表：整块卡片（统一背景），无右侧图标、无下划线
-            for (final id in ids) ...[
-              _BookCard(
-                key: _itemKeys.putIfAbsent(id, () => GlobalKey()),
-                title: _bookName(id),
-                expanded: _expanded == id,
-                onTapHeader: () {
-                  setState(() {
-                    _expanded = (_expanded == id) ? null : id; // 单开
-                  });
-                  // 展开后：先确保卡片进入布局，再（如果是当前书卷）精确滚到高亮章
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    _ensureVisibleByKey(_itemKeys[id]);
-                    if (id == widget.initialBookId) {
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        _ensureVisibleByKey(_highlightKey);
-                        WidgetsBinding.instance.addPostFrameCallback((_) {
-                          _scrollToKey(_highlightKey, animated: true);
-                        });
-                      });
-                    } else {
-                      // 其他书卷：滚到该书卷卡片顶部即可
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        _scrollToKey(_itemKeys[id]!, animated: true);
-                      });
-                    }
-                  });
-                },
-                chapterArea: _ChapterSquares(
-                  count: widget.chapterCounts[id - 1],
-                  // 仅“当前阅读的书卷”里高亮当前章，并把 key 绑到那颗小方块
-                  current: (id == widget.initialBookId) ? widget.initialChapter : null,
-                  highlightKey: (id == widget.initialBookId) ? _highlightKey : null,
-                  onPick: (n) => Navigator.pop(context, PickResult(id, n)),
-                ),
-              ),
-              const SizedBox(height: 12), // 卡片之间的间距
-            ],
           ],
+        ],
+      ),
+
+      // —— 顶层：固定搜索栏
+      Positioned(
+        left: 12,
+        right: 12,
+        top: 12,
+        child: TextField(
+          onChanged: (v) => setState(() => _q = v.trim()),
+          decoration: InputDecoration(
+            prefixIcon: const Icon(Icons.search),
+            hintText: isCn ? '搜索书卷…' : 'Search book…',
+            filled: true,
+            fillColor: cs.surfaceContainerHighest.withOpacity(1.0),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
+            contentPadding: const EdgeInsets.symmetric(vertical: 12),
+          ),
         ),
       ),
+    ],
+  ),
+),
+
     );
   }
 }
