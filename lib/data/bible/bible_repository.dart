@@ -1,5 +1,5 @@
 import 'bible_db.dart';
-
+import '../../models/bible_search_result.dart';
 class BibleRepository {
   final BibleDb db;
 
@@ -27,4 +27,16 @@ class BibleRepository {
         return 'kjv';
     }
   }
+Future<List<BibleSearchResult>> searchVerses({
+  required String keyword,
+  required String lang,
+  int limit = 50,
+}) {
+return db.searchVerses(
+  query: keyword,
+  versionCode: _mapLangToVersionCode(lang),
+);
+}
+
+  
 }

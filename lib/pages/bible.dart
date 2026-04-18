@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:http/http.dart' as http;
 
 import '../models/search_bar.dart';
@@ -14,6 +15,7 @@ import '../data/bible/bible_repository.dart';
 
 const _baseUrl = 'https://withelim.com';
 typedef BibleLang = String; // 't_kjv' / 't_cn'
+
 String _normalizeBibleLang(String? raw) {
   switch (raw) {
     case 'cn':
@@ -28,28 +30,210 @@ String _normalizeBibleLang(String? raw) {
 
 // 书卷英文/中文名 & 章数
 const List<String> bookNamesEn = [
-  "Genesis","Exodus","Leviticus","Numbers","Deuteronomy","Joshua","Judges","Ruth","1 Samuel","2 Samuel",
-  "1 Kings","2 Kings","1 Chronicles","2 Chronicles","Ezra","Nehemiah","Esther","Job","Psalms","Proverbs",
-  "Ecclesiastes","Song of Solomon","Isaiah","Jeremiah","Lamentations","Ezekiel","Daniel","Hosea","Joel","Amos",
-  "Obadiah","Jonah","Micah","Nahum","Habakkuk","Zephaniah","Haggai","Zechariah","Malachi","Matthew","Mark",
-  "Luke","John","Acts","Romans","1 Corinthians","2 Corinthians","Galatians","Ephesians","Philippians","Colossians",
-  "1 Thessalonians","2 Thessalonians","1 Timothy","2 Timothy","Titus","Philemon","Hebrews","James","1 Peter","2 Peter",
-  "1 John","2 John","3 John","Jude","Revelation"
+  "Genesis",
+  "Exodus",
+  "Leviticus",
+  "Numbers",
+  "Deuteronomy",
+  "Joshua",
+  "Judges",
+  "Ruth",
+  "1 Samuel",
+  "2 Samuel",
+  "1 Kings",
+  "2 Kings",
+  "1 Chronicles",
+  "2 Chronicles",
+  "Ezra",
+  "Nehemiah",
+  "Esther",
+  "Job",
+  "Psalms",
+  "Proverbs",
+  "Ecclesiastes",
+  "Song of Solomon",
+  "Isaiah",
+  "Jeremiah",
+  "Lamentations",
+  "Ezekiel",
+  "Daniel",
+  "Hosea",
+  "Joel",
+  "Amos",
+  "Obadiah",
+  "Jonah",
+  "Micah",
+  "Nahum",
+  "Habakkuk",
+  "Zephaniah",
+  "Haggai",
+  "Zechariah",
+  "Malachi",
+  "Matthew",
+  "Mark",
+  "Luke",
+  "John",
+  "Acts",
+  "Romans",
+  "1 Corinthians",
+  "2 Corinthians",
+  "Galatians",
+  "Ephesians",
+  "Philippians",
+  "Colossians",
+  "1 Thessalonians",
+  "2 Thessalonians",
+  "1 Timothy",
+  "2 Timothy",
+  "Titus",
+  "Philemon",
+  "Hebrews",
+  "James",
+  "1 Peter",
+  "2 Peter",
+  "1 John",
+  "2 John",
+  "3 John",
+  "Jude",
+  "Revelation"
 ];
 
 const List<String> bookNamesCn = [
-  "创世记","出埃及记","利未记","民数记","申命记","约书亚记","士师记","路得记","撒母耳记上","撒母耳记下",
-  "列王纪上","列王纪下","历代志上","历代志下","以斯拉记","尼希米记","以斯帖记","约伯记","诗篇","箴言",
-  "传道书","雅歌","以赛亚书","耶利米书","耶利米哀歌","以西结书","但以理书","何西阿书","约珥书","阿摩司书",
-  "俄巴底亚书","约拿书","弥迦书","那鸿书","哈巴谷书","西番雅书","哈该书","撒迦利亚书","玛拉基书","马太福音","马可福音",
-  "路加福音","约翰福音","使徒行传","罗马书","哥林多前书","哥林多后书","加拉太书","以弗所书","腓立比书","歌罗西书",
-  "帖撒罗尼迦前书","帖撒罗尼迦后书","提摩太前书","提摩太后书","提多书","腓利门书","希伯来书","雅各书","彼得前书","彼得后书",
-  "约翰一书","约翰二书","约翰三书","犹大书","启示录"
+  "创世记",
+  "出埃及记",
+  "利未记",
+  "民数记",
+  "申命记",
+  "约书亚记",
+  "士师记",
+  "路得记",
+  "撒母耳记上",
+  "撒母耳记下",
+  "列王纪上",
+  "列王纪下",
+  "历代志上",
+  "历代志下",
+  "以斯拉记",
+  "尼希米记",
+  "以斯帖记",
+  "约伯记",
+  "诗篇",
+  "箴言",
+  "传道书",
+  "雅歌",
+  "以赛亚书",
+  "耶利米书",
+  "耶利米哀歌",
+  "以西结书",
+  "但以理书",
+  "何西阿书",
+  "约珥书",
+  "阿摩司书",
+  "俄巴底亚书",
+  "约拿书",
+  "弥迦书",
+  "那鸿书",
+  "哈巴谷书",
+  "西番雅书",
+  "哈该书",
+  "撒迦利亚书",
+  "玛拉基书",
+  "马太福音",
+  "马可福音",
+  "路加福音",
+  "约翰福音",
+  "使徒行传",
+  "罗马书",
+  "哥林多前书",
+  "哥林多后书",
+  "加拉太书",
+  "以弗所书",
+  "腓立比书",
+  "歌罗西书",
+  "帖撒罗尼迦前书",
+  "帖撒罗尼迦后书",
+  "提摩太前书",
+  "提摩太后书",
+  "提多书",
+  "腓利门书",
+  "希伯来书",
+  "雅各书",
+  "彼得前书",
+  "彼得后书",
+  "约翰一书",
+  "约翰二书",
+  "约翰三书",
+  "犹大书",
+  "启示录"
 ];
 
 const List<int> _chapterCounts = [
-  50,40,27,36,34,24,21,4,31,24,22,25,29,36,10,13,10,42,150,31,12,8,66,52,5,48,12,14,3,9,1,4,7,3,3,3,2,14,4,
-  28,16,24,21,28,16,16,13,6,6,4,4,5,3,6,4,3,1,13,5,5,3,5,1,1,1,22
+  50,
+  40,
+  27,
+  36,
+  34,
+  24,
+  21,
+  4,
+  31,
+  24,
+  22,
+  25,
+  29,
+  36,
+  10,
+  13,
+  10,
+  42,
+  150,
+  31,
+  12,
+  8,
+  66,
+  52,
+  5,
+  48,
+  12,
+  14,
+  3,
+  9,
+  1,
+  4,
+  7,
+  3,
+  3,
+  3,
+  2,
+  14,
+  4,
+  28,
+  16,
+  24,
+  21,
+  28,
+  16,
+  16,
+  13,
+  6,
+  6,
+  4,
+  4,
+  5,
+  3,
+  6,
+  4,
+  3,
+  1,
+  13,
+  5,
+  5,
+  3,
+  5,
+  1,
+  1,
+  1,
+  22
 ];
 
 class BibleJumpController {
@@ -86,8 +270,8 @@ class _BiblePageState extends State<BiblePage> {
   final ScrollController _scrollCtrl = ScrollController();
 
   final Map<int, GlobalKey> _verseKeys = {};
-int? _pendingVerse;
-String? _lastHandledJumpKey;
+  int? _pendingVerse;
+  String? _lastHandledJumpKey;
 
   bool _depsReady = false;
   bool _restoredOnce = false;
@@ -96,10 +280,11 @@ String? _lastHandledJumpKey;
 
   final Set<int> _highlightedVerses = <int>{};
   final Map<int, Timer> _highlightTimers = {};
+  bool _keepSearchHighlightUntilScroll = false;
 
   final Set<int> _selectedVerseNumbers = <int>{};
   int? _activeVerseNumber;
-  bool _isPrayerPrivate = false;
+  final bool _isPrayerPrivate = false;
 
   @override
   void initState() {
@@ -132,20 +317,20 @@ String? _lastHandledJumpKey;
     super.dispose();
   }
 
-void _jumpToVerseFromOutside(int b, int c, int v) {
-  _lastHandledJumpKey = '$b-$c-$v';
-  _pendingVerse = v;
+  void _jumpToVerseFromOutside(int b, int c, int v) {
+    _lastHandledJumpKey = '$b-$c-$v';
+    _pendingVerse = v;
 
-  final needReload = (_bookId != b) || (_chapter != c);
-  if (needReload) {
-    _gotoChapter(b, c).whenComplete(() {
-      if (!mounted || _pendingVerse == null) return;
+    final needReload = (_bookId != b) || (_chapter != c);
+    if (needReload) {
+      _gotoChapter(b, c).whenComplete(() {
+        if (!mounted || _pendingVerse == null) return;
+        _tryScrollToPendingVerse();
+      });
+    } else {
       _tryScrollToPendingVerse();
-    });
-  } else {
-    _tryScrollToPendingVerse();
+    }
   }
-}
 
   @override
   void didChangeDependencies() {
@@ -211,17 +396,44 @@ void _jumpToVerseFromOutside(int b, int c, int v) {
     );
   }
 
-  void _flashVerse(int v, {Duration duration = const Duration(seconds: 1)}) {
+  void _flashVerse(
+    int v, {
+    Duration duration = const Duration(seconds: 1),
+    bool keepUntilScroll = false,
+  }) {
     _highlightTimers[v]?.cancel();
+    _highlightTimers.remove(v);
+
     setState(() {
       _highlightedVerses.add(v);
+      if (keepUntilScroll) {
+        _keepSearchHighlightUntilScroll = true;
+      }
     });
+
+    if (keepUntilScroll) return;
+
     _highlightTimers[v] = Timer(duration, () {
       if (!mounted) return;
       setState(() {
         _highlightedVerses.remove(v);
       });
       _highlightTimers.remove(v);
+    });
+  }
+
+  void _clearSearchHighlightOnScroll() {
+    if (!_keepSearchHighlightUntilScroll) return;
+
+    for (final t in _highlightTimers.values) {
+      t.cancel();
+    }
+    _highlightTimers.clear();
+
+    if (!mounted) return;
+    setState(() {
+      _highlightedVerses.clear();
+      _keepSearchHighlightUntilScroll = false;
     });
   }
 
@@ -242,13 +454,13 @@ void _jumpToVerseFromOutside(int b, int c, int v) {
       final j = json.decode(res.body) as Map<String, dynamic>;
       final int? rb = (j['reading_book'] as num?)?.toInt();
       final int? rc = (j['reading_chapter'] as num?)?.toInt();
-final String? serverLangRaw = j['language'] as String?;
-final String serverLang = _normalizeBibleLang(serverLangRaw);
+      final String? serverLangRaw = j['language'] as String?;
+      final String serverLang = _normalizeBibleLang(serverLangRaw);
 
-if (serverLang != _lang) {
-  LangScope.of(context).setLang(serverLang);
-  _lang = serverLang;
-}
+      if (serverLang != _lang) {
+        LangScope.of(context).setLang(serverLang);
+        _lang = serverLang;
+      }
 
       if (rb != null && rc != null && rb >= 1 && rb <= 66 && rc >= 1) {
         _bookId = rb;
@@ -295,7 +507,10 @@ if (serverLang != _lang) {
       await http.post(
         Uri.parse('$_baseUrl/api/auth/update-reading'),
         headers: _authedJsonHeaders(auth.token!),
-        body: jsonEncode({'reading_book': _bookId, 'reading_chapter': _chapter}),
+        body: jsonEncode({
+          'reading_book': _bookId,
+          'reading_chapter': _chapter,
+        }),
       );
     } catch (_) {}
   }
@@ -311,67 +526,67 @@ if (serverLang != _lang) {
     _scheduleSyncReading();
   }
 
-void _tryScrollToPendingVerse({int retries = 12}) {
-  final v = _pendingVerse;
-  if (v == null) return;
+  void _tryScrollToPendingVerse({int retries = 12}) {
+    final v = _pendingVerse;
+    if (v == null) return;
 
-  WidgetsBinding.instance.addPostFrameCallback((_) {
-    if (!mounted || _pendingVerse == null) return;
-
-    final success = _scrollToVerse(_pendingVerse!);
-    if (success) {
-      _flashVerse(_pendingVerse!);
-      _pendingVerse = null;
-      return;
-    }
-
-    if (retries > 0) {
-      Future.delayed(const Duration(milliseconds: 50), () {
-        _tryScrollToPendingVerse(retries: retries - 1);
-      });
-    }
-  });
-}
-
-bool _scrollToVerse(int v) {
-  final key = _verseKeys[v];
-  final ctx = key?.currentContext;
-  if (ctx == null) return false;
-
-  Scrollable.ensureVisible(
-    ctx,
-    duration: const Duration(milliseconds: 320),
-    curve: Curves.easeOut,
-    alignment: 0.08,
-  );
-  return true;
-}
-
-void _handleDeepLinkIfAny() {
-  final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
-  if (args == null) return;
-
-  final int b = (args['b'] as num?)?.toInt() ?? 1;
-  final int c = (args['c'] as num?)?.toInt() ?? 1;
-  final int v = (args['v'] as num?)?.toInt() ?? 1;
-
-  final jumpKey = '$b-$c-$v';
-  if (_lastHandledJumpKey == jumpKey) return;
-  _lastHandledJumpKey = jumpKey;
-
-  _pendingVerse = v;
-
-  final bool needReload = (_bookId != b) || (_chapter != c);
-
-  if (needReload) {
-    _gotoChapter(b, c).whenComplete(() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _pendingVerse == null) return;
-      _tryScrollToPendingVerse();
+
+      final success = _scrollToVerse(_pendingVerse!);
+      if (success) {
+        _flashVerse(_pendingVerse!, keepUntilScroll: true);
+        _pendingVerse = null;
+        return;
+      }
+
+      if (retries > 0) {
+        Future.delayed(const Duration(milliseconds: 50), () {
+          _tryScrollToPendingVerse(retries: retries - 1);
+        });
+      }
     });
-  } else {
-    _tryScrollToPendingVerse();
   }
-}
+
+  bool _scrollToVerse(int v) {
+    final key = _verseKeys[v];
+    final ctx = key?.currentContext;
+    if (ctx == null) return false;
+
+    Scrollable.ensureVisible(
+      ctx,
+      duration: const Duration(milliseconds: 320),
+      curve: Curves.easeOut,
+      alignment: 0.08,
+    );
+    return true;
+  }
+
+  void _handleDeepLinkIfAny() {
+    final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+    if (args == null) return;
+
+    final int b = (args['b'] as num?)?.toInt() ?? 1;
+    final int c = (args['c'] as num?)?.toInt() ?? 1;
+    final int v = (args['v'] as num?)?.toInt() ?? 1;
+
+    final jumpKey = '$b-$c-$v';
+    if (_lastHandledJumpKey == jumpKey) return;
+    _lastHandledJumpKey = jumpKey;
+
+    _pendingVerse = v;
+
+    final bool needReload = (_bookId != b) || (_chapter != c);
+
+    if (needReload) {
+      _gotoChapter(b, c).whenComplete(() {
+        if (!mounted || _pendingVerse == null) return;
+        _tryScrollToPendingVerse();
+      });
+    } else {
+      _tryScrollToPendingVerse();
+    }
+  }
 
   void _scrollToTop() {
     void doJump() {
@@ -452,7 +667,7 @@ void _handleDeepLinkIfAny() {
 
   String _chapterCn(int n) {
     assert(n >= 1 && n <= 999);
-    const numerals = ['零','一','二','三','四','五','六','七','八','九'];
+    const numerals = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
 
     String under100(int x, {bool forceTenOne = false}) {
       if (x < 10) return numerals[x];
@@ -523,44 +738,43 @@ void _handleDeepLinkIfAny() {
   }
 
   Future<void> _openPrayerDialog(List<BibleVerse> allVerses) async {
-  final auth = AuthScope.of(context);
-  if (!auth.isAuthed || _selectedVerseNumbers.isEmpty) return;
+    final auth = AuthScope.of(context);
+    if (!auth.isAuthed || _selectedVerseNumbers.isEmpty) return;
 
-  final selected = allVerses
-      .where((v) => _selectedVerseNumbers.contains(v.verse))
-      .toList()
-    ..sort((a, b) => a.verse.compareTo(b.verse));
+    final selected = allVerses
+        .where((v) => _selectedVerseNumbers.contains(v.verse))
+        .toList()
+      ..sort((a, b) => a.verse.compareTo(b.verse));
 
-  if (selected.isEmpty) return;
+    if (selected.isEmpty) return;
 
-  final bool? submitted = await showDialog<bool>(
-    context: context,
-    barrierDismissible: true,
-    builder: (dialogContext) {
-      return _PrayerDialog(
-        lang: _lang,
-        bookId: _bookId,
-        chapter: _chapter,
-        currentBookName: _currentBookName,
-        isPrayerPrivate: _isPrayerPrivate,
-        selected: selected,
-        token: auth.token!,
-        chapterCnBuilder: _chapterCn,
-        tr: _t,
+    final bool? submitted = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogContext) {
+        return _PrayerDialog(
+          lang: _lang,
+          bookId: _bookId,
+          chapter: _chapter,
+          currentBookName: _currentBookName,
+          isPrayerPrivate: _isPrayerPrivate,
+          selected: selected,
+          token: auth.token!,
+          chapterCnBuilder: _chapterCn,
+          tr: _t,
+        );
+      },
+    );
+
+    if (!mounted) return;
+
+    if (submitted == true) {
+      _clearVerseSelection();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(_t('Prayer submitted successfully!', '祷告已提交！'))),
       );
-    },
-  );
-
-  if (!mounted) return;
-
-if (submitted == true) {
-  _clearVerseSelection();
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(content: Text(_t('Prayer submitted successfully!', '祷告已提交！'))),
-  );
-}
-}
-
+    }
+  }
 
   Future<void> _openBookChapterPicker() async {
     final picked = await Navigator.push<PickResult>(
@@ -596,14 +810,16 @@ if (submitted == true) {
     return SafeArea(
       child: Column(
         children: [
-           Padding(
-            padding: EdgeInsets.fromLTRB(16, 10, 16, 0),
-child: AppSearchBar(
-  onJumpToVerse: (b, c, v) {
-    debugPrint('Bible search jump: $b-$c-$v, controller=${widget.controller != null}');
-    widget.controller?.jumpTo(b, c, v);
-  },
-),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+            child: AppSearchBar(
+              onJumpToVerse: (b, c, v) {
+                debugPrint(
+                  'Bible search jump: $b-$c-$v, controller=${widget.controller != null}',
+                );
+                widget.controller?.jumpTo(b, c, v);
+              },
+            ),
           ),
           Expanded(
             child: GestureDetector(
@@ -638,60 +854,69 @@ child: AppSearchBar(
                             ? _chapterCn(_chapter)
                             : '${bookNamesEn[_bookId - 1]} $_chapter';
 
-                        return ListView.builder(
-                          controller: _scrollCtrl,
-                          cacheExtent: 20000,
-                          padding: const EdgeInsets.fromLTRB(32, 8, 32, 8),
-                          itemCount: verses.length + 1,
-                          itemBuilder: (context, i) {
-                            if (i == 0) {
-                              return Padding(
-                                padding: const EdgeInsets.only(top: 14, bottom: 28),
-                                child: Column(
-                                  children: [
-                                    Text(
-                                      isCn
-                                          ? '${bookNamesCn[_bookId - 1]} $headerTitle'
-                                          : headerTitle,
-                                      textAlign: TextAlign.center,
-                                      style: (isCn
-                                              ? textTheme.headlineMedium
-                                              : textTheme.displaySmall)
-                                          ?.copyWith(fontWeight: FontWeight.w800),
-                                    ),
-                                    const SizedBox(height: 20),
-                                    Center(
-                                      child: SizedBox(
-                                        width: 240,
-                                        child: Divider(
-                                          thickness: 1,
-                                          height: 1,
-                                          color: cs.outlineVariant.withOpacity(0.5),
+                        return NotificationListener<ScrollNotification>(
+                          onNotification: (notification) {
+                            if (notification is UserScrollNotification &&
+                                notification.direction != ScrollDirection.idle) {
+                              _clearSearchHighlightOnScroll();
+                            }
+                            return false;
+                          },
+                          child: ListView.builder(
+                            controller: _scrollCtrl,
+                            cacheExtent: 20000,
+                            padding: const EdgeInsets.fromLTRB(32, 8, 32, 8),
+                            itemCount: verses.length + 1,
+                            itemBuilder: (context, i) {
+                              if (i == 0) {
+                                return Padding(
+                                  padding: const EdgeInsets.only(top: 14, bottom: 28),
+                                  child: Column(
+                                    children: [
+                                      Text(
+                                        isCn
+                                            ? '${bookNamesCn[_bookId - 1]} $headerTitle'
+                                            : headerTitle,
+                                        textAlign: TextAlign.center,
+                                        style: (isCn
+                                                ? textTheme.headlineMedium
+                                                : textTheme.displaySmall)
+                                            ?.copyWith(fontWeight: FontWeight.w800),
+                                      ),
+                                      const SizedBox(height: 20),
+                                      Center(
+                                        child: SizedBox(
+                                          width: 240,
+                                          child: Divider(
+                                            thickness: 1,
+                                            height: 1,
+                                            color: cs.outlineVariant.withOpacity(0.5),
+                                          ),
                                         ),
                                       ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
+                                );
+                              }
+
+                              final v = verses[i - 1];
+
+                              return Align(
+                                alignment: Alignment.centerLeft,
+                                child: KeyedSubtree(
+                                  key: _verseKeys.putIfAbsent(v.verse, () => GlobalKey()),
+                                  child: _VerseParagraph(
+                                    verse: v,
+                                    highlighted: _highlightedVerses.contains(v.verse),
+                                    selected: _selectedVerseNumbers.contains(v.verse),
+                                    active: _activeVerseNumber == v.verse,
+                                    onTap: () => _toggleVerseSelection(v),
+                                    onCreatePrayer: () => _openPrayerDialog(verses),
+                                  ),
                                 ),
                               );
-                            }
-
-                            final v = verses[i - 1];
-
-                            return Align(
-                              alignment: Alignment.centerLeft,
-                              child: KeyedSubtree(
-                                key: _verseKeys.putIfAbsent(v.verse, () => GlobalKey()),
-                                child: _VerseParagraph(
-                                  verse: v,
-                                  highlighted: _highlightedVerses.contains(v.verse),
-                                  selected: _selectedVerseNumbers.contains(v.verse),
-                                  active: _activeVerseNumber == v.verse,
-                                  onTap: () => _toggleVerseSelection(v),
-                                  onCreatePrayer: () => _openPrayerDialog(verses),
-                                ),
-                              ),
-                            );
-                          },
+                            },
+                          ),
                         );
                       },
                     ),
@@ -799,7 +1024,10 @@ class _BottomPager extends StatelessWidget {
                             label,
                             textAlign: TextAlign.center,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                         ),
                       ),
@@ -1049,98 +1277,110 @@ class _PrayerDialogState extends State<_PrayerDialog> {
     final firstFive = widget.selected.take(5).toList();
     final remaining = widget.selected.skip(5).toList();
 
-    return AlertDialog(
-      title: Text(widget.tr('Write your prayer', '写下你的祷告')),
-      content: SizedBox(
-        width: 420,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '${widget.currentBookName} ${widget.lang == 't_cn' ? widget.chapterCnBuilder(widget.chapter) : 'Chapter ${widget.chapter}'}',
-              ),
-              const SizedBox(height: 12),
-              ...firstFive.map(
-                (item) => Padding(
-                  padding: const EdgeInsets.only(bottom: 6),
-                  child: Text('[${item.verse}] ${item.text}'),
+    return Dialog(
+      insetPadding: EdgeInsets.zero,
+      child: SizedBox.expand(
+        child: Scaffold(
+          appBar: AppBar(
+            title: Text(widget.tr('Write your prayer', '写下你的祷告')),
+            leading: IconButton(
+              icon: const Icon(Icons.close),
+              onPressed: () => Navigator.of(context).pop(false),
+            ),
+            actions: [
+              TextButton(
+                onPressed: _isSubmitting ? null : _submitPrayer,
+                child: Text(
+                  _isSubmitting
+                      ? widget.tr('Submitting...', '提交中...')
+                      : widget.tr('Submit', '提交'),
                 ),
-              ),
-              if (remaining.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 2, bottom: 10),
-                  child: Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: [
-                      Text(
-                        widget.tr('Remaining verses:', '其余经文：'),
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                      ...remaining.map((item) => Text('[${item.verse}]')),
-                    ],
-                  ),
-                ),
-              TextField(
-                controller: _titleController,
-                decoration: InputDecoration(
-                  hintText: widget.tr('Prayer Title', '祷告标题'),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(widget.tr('Visibility:', '可见性：')),
-              Row(
-                children: [
-                  Expanded(
-                    child: RadioListTile<bool>(
-                      contentPadding: EdgeInsets.zero,
-                      value: false,
-                      groupValue: _isPrivate,
-                      title: Text(widget.tr('Public', '公开')),
-                      onChanged: (v) => setState(() => _isPrivate = v ?? false),
-                    ),
-                  ),
-                  Expanded(
-                    child: RadioListTile<bool>(
-                      contentPadding: EdgeInsets.zero,
-                      value: true,
-                      groupValue: _isPrivate,
-                      title: Text(widget.tr('Private', '私密')),
-                      onChanged: (v) => setState(() => _isPrivate = v ?? true),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              TextField(
-                controller: _contentController,
-                minLines: 4,
-                maxLines: 6,
-                decoration: InputDecoration(
-                  hintText: widget.tr('Enter your prayer here', '请输入你的祷告内容'),
-                  border: const OutlineInputBorder(),
-                ),
-              ),
+              )
             ],
+          ),
+          body: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${widget.currentBookName} ${widget.lang == 't_cn' ? widget.chapterCnBuilder(widget.chapter) : 'Chapter ${widget.chapter}'}',
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _titleController,
+                      decoration: InputDecoration(
+                        hintText: widget.tr('Prayer Title', '祷告标题'),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(widget.tr('Visibility:', '可见性：')),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: RadioListTile<bool>(
+                            value: false,
+                            groupValue: _isPrivate,
+                            title: Text(widget.tr('Public', '公开')),
+                            onChanged: (v) => setState(() => _isPrivate = v!),
+                          ),
+                        ),
+                        Expanded(
+                          child: RadioListTile<bool>(
+                            value: true,
+                            groupValue: _isPrivate,
+                            title: Text(widget.tr('Private', '私密')),
+                            onChanged: (v) => setState(() => _isPrivate = v!),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _contentController,
+                      minLines: 6,
+                      maxLines: 10,
+                      decoration: InputDecoration(
+                        hintText: widget.tr('Enter your prayer here', '请输入你的祷告内容'),
+                        border: const OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      widget.tr('Selected verses:', '引用经文：'),
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 8),
+                    ...firstFive.map(
+                      (item) => Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: Text('[${item.verse}] ${item.text}'),
+                      ),
+                    ),
+                    if (remaining.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: [
+                            Text(
+                              widget.tr('Remaining:', '其余：'),
+                              style: const TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                            ...remaining.map((item) => Text('[${item.verse}]')),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
           ),
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: _isSubmitting ? null : () => Navigator.of(context).pop(false),
-          child: Text(widget.tr('Cancel', '取消')),
-        ),
-        FilledButton(
-          onPressed: _isSubmitting ? null : _submitPrayer,
-          child: Text(
-            _isSubmitting
-                ? widget.tr('Submitting...', '提交中...')
-                : widget.tr('Submit', '提交'),
-          ),
-        ),
-      ],
     );
   }
 }

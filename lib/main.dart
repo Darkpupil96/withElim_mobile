@@ -19,12 +19,26 @@ Future<void> main() async {
   final langController = LangController();
   final authController = AuthController();
 
-  await authController.tryAutoLogin();
+  await authController.tryAutoLogin(
+    validateToken: (token) async {
+      final res = await http.get(
+        Uri.parse('http://withelim.com/api/me'),
+        headers: {
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      return res.statusCode == 200;
+    },
+  );
 
   runApp(
-    LangScope(
-      controller: langController,
-      child: WithElimApp(authController: authController),
+    AuthScope(
+      controller: authController,
+      child: LangScope(
+        controller: langController,
+        child: WithElimApp(authController: authController),
+      ),
     ),
   );
 }

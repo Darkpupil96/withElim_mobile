@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
+import '../../models/bible_search_result.dart';
 
 class BibleVerse {
   final int bookId;
@@ -70,4 +71,70 @@ class BibleDb {
 
     return rows.map(BibleVerse.fromMap).toList();
   }
+
+ Future<List<BibleSearchResult>> searchVerses({
+  required String query,
+  required String versionCode,
+  int limit = 200,
+}) async {
+  final db = await database();
+
+  final tokens = query
+      .trim()
+      .split(RegExp(r'\s+'))
+      .map((e) => e.trim())
+      .where((e) => e.isNotEmpty)
+      .toList();
+
+  if (tokens.isEmpty) return const [];
+
+  List<Map<String, Object?>> rows = [];
+
+  // 先 AND
+  final andWhereParts = <String>['version_code = ?'];
+  final andWhereArgs = <Object>[versionCode];
+
+  for (final token in tokens) {
+    andWhereParts.add('text LIKE ?');
+    andWhereArgs.add('%$token%');
+  }
+  andWhereArgs.add(limit);
+
+  rows = await db.rawQuery(
+    '''
+    SELECT book_id, chapter, verse, text, version_code
+    FROM verses
+    WHERE ${andWhereParts.join(' AND ')}
+    ORDER BY book_id ASC, chapter ASC, verse ASC
+    LIMIT ?
+    ''',
+    andWhereArgs,
+  );
+
+  // 如果 AND 没结果，再 OR
+  if (rows.isEmpty && tokens.length > 1) {
+    final orWhereArgs = <Object>[versionCode];
+    final likeParts = <String>[];
+
+    for (final token in tokens) {
+      likeParts.add('text LIKE ?');
+      orWhereArgs.add('%$token%');
+    }
+    orWhereArgs.add(limit);
+
+    rows = await db.rawQuery(
+      '''
+      SELECT book_id, chapter, verse, text, version_code
+      FROM verses
+      WHERE version_code = ?
+        AND (${likeParts.join(' OR ')})
+      ORDER BY book_id ASC, chapter ASC, verse ASC
+      LIMIT ?
+      ''',
+      orWhereArgs,
+    );
+  }
+
+  return rows.map((e) => BibleSearchResult.fromMap(e)).toList();
+}
 }

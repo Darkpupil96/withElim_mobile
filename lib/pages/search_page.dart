@@ -1,11 +1,18 @@
-import 'dart:convert';
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+
 import '../app/app_lang.dart';
-import 'bible.dart'; // 你自己的 bible.dart（已在上方 import）
+import '../data/bible/bible_db.dart';
+import '../data/bible/bible_repository.dart';
+import '../models/bible_search_result.dart';
 
 class SearchPage extends StatefulWidget {
-  const SearchPage({super.key, this.initialWord = ''});
+  const SearchPage({
+    super.key,
+    this.initialWord = '',
+  });
+
   final String initialWord;
 
   @override
@@ -13,358 +20,373 @@ class SearchPage extends StatefulWidget {
 }
 
 class _SearchPageState extends State<SearchPage> {
-  static const String _baseUrl = 'https://withelim.com';
-  final TextEditingController _controller = TextEditingController();
-  bool _loading = false;
-  String _error = '';
-  String _word = '';
+  late final TextEditingController _controller;
+  late final BibleRepository _repo;
 
-  Map<int, List<_VerseHit>> _grouped = {};
-  List<int> _orderedBooks = [];
-  int? _initialOpenBookId;
+  Timer? _debounce;
+  bool _loading = false;
+  String _keyword = '';
+  List<BibleSearchResult> _results = const [];
+
+  /// 当前展开的章节组 key，格式：bookId-chapter
+  final Set<String> _expandedGroups = <String>{};
+
+  static const List<String> bookNamesEn = [
+    "Genesis","Exodus","Leviticus","Numbers","Deuteronomy","Joshua","Judges","Ruth","1 Samuel","2 Samuel",
+    "1 Kings","2 Kings","1 Chronicles","2 Chronicles","Ezra","Nehemiah","Esther","Job","Psalms","Proverbs",
+    "Ecclesiastes","Song of Solomon","Isaiah","Jeremiah","Lamentations","Ezekiel","Daniel","Hosea","Joel","Amos",
+    "Obadiah","Jonah","Micah","Nahum","Habakkuk","Zephaniah","Haggai","Zechariah","Malachi","Matthew","Mark",
+    "Luke","John","Acts","Romans","1 Corinthians","2 Corinthians","Galatians","Ephesians","Philippians","Colossians",
+    "1 Thessalonians","2 Thessalonians","1 Timothy","2 Timothy","Titus","Philemon","Hebrews","James","1 Peter","2 Peter",
+    "1 John","2 John","3 John","Jude","Revelation"
+  ];
+
+  static const List<String> bookNamesCn = [
+    "创世记","出埃及记","利未记","民数记","申命记","约书亚记","士师记","路得记","撒母耳记上","撒母耳记下",
+    "列王纪上","列王纪下","历代志上","历代志下","以斯拉记","尼希米记","以斯帖记","约伯记","诗篇","箴言",
+    "传道书","雅歌","以赛亚书","耶利米书","耶利米哀歌","以西结书","但以理书","何西阿书","约珥书","阿摩司书",
+    "俄巴底亚书","约拿书","弥迦书","那鸿书","哈巴谷书","西番雅书","哈该书","撒迦利亚书","玛拉基书","马太福音","马可福音",
+    "路加福音","约翰福音","使徒行传","罗马书","哥林多前书","哥林多后书","加拉太书","以弗所书","腓立比书","歌罗西书",
+    "帖撒罗尼迦前书","帖撒罗尼迦后书","提摩太前书","提摩太后书","提多书","腓利门书","希伯来书","雅各书","彼得前书","彼得后书",
+    "约翰一书","约翰二书","约翰三书","犹大书","启示录"
+  ];
 
   @override
   void initState() {
     super.initState();
-    _controller.text = widget.initialWord;
+    _controller = TextEditingController(text: widget.initialWord);
+    _repo = BibleRepository(BibleDb());
+
+    if (widget.initialWord.trim().isNotEmpty) {
+      _keyword = widget.initialWord.trim();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _searchNow(_keyword);
+      });
+    }
   }
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _controller.dispose();
     super.dispose();
   }
 
-  Future<void> _doSearch(String word) async {
-    final lang = LangScope.of(context).lang; // 't_cn' or 't_kjv'
-    if (word.trim().isEmpty) {
+  String _normalizeLang(String? raw) {
+    switch (raw) {
+      case 'cn':
+      case 't_cn':
+        return 't_cn';
+      case 'kjv':
+      case 't_kjv':
+      default:
+        return 't_kjv';
+    }
+  }
+
+  String _bookName(int bookId, bool isCn) {
+    if (bookId < 1 || bookId > 66) return '';
+    return isCn ? bookNamesCn[bookId - 1] : bookNamesEn[bookId - 1];
+  }
+
+  String _groupKey(BibleSearchResult item) => '${item.bookId}-${item.chapter}';
+
+  Future<void> _searchNow(String keyword) async {
+    final trimmed = keyword.trim();
+    final lang = _normalizeLang(LangScope.of(context).lang);
+
+    if (trimmed.isEmpty) {
+      if (!mounted) return;
       setState(() {
-        _word = '';
-        _grouped = {};
-        _orderedBooks = [];
-        _error = '';
-        _initialOpenBookId = null;
+        _keyword = '';
+        _results = const [];
+        _loading = false;
+        _expandedGroups.clear();
       });
       return;
     }
 
     setState(() {
+      _keyword = trimmed;
       _loading = true;
-      _error = '';
-      _word = word.trim();
-      _grouped = {};
-      _orderedBooks = [];
-      _initialOpenBookId = null;
     });
 
-    // 路由前缀与 Web 保持一致：/api/bible/...
-    final path = lang == 't_cn'
-        ? '/api/bible/Chinese/search'
-        : '/api/bible/English/search';
-    final uri = Uri.parse('$_baseUrl$path?word=${Uri.encodeQueryComponent(_word)}');
-
     try {
-      final res = await http.get(uri);
-      if (res.statusCode != 200) {
-        throw Exception('HTTP ${res.statusCode}');
-      }
-      final json = jsonDecode(res.body) as Map<String, dynamic>;
-      final list = (json['verses'] as List).cast<Map<String, dynamic>>();
+      final rows = await _repo.searchVerses(
+        keyword: trimmed,
+        lang: lang,
+        limit: 200,
+      );
 
-      final hits = list.map((m) => _VerseHit.fromJson(m)).toList();
+      if (!mounted) return;
 
-      // 分组：book -> verses
-      final Map<int, List<_VerseHit>> grouped = {};
-      for (final h in hits) {
-        grouped.putIfAbsent(h.b, () => []).add(h);
+      final nextExpanded = <String>{};
+      if (rows.isNotEmpty) {
+        nextExpanded.add(_groupKey(rows.first)); // 第一组默认展开
       }
-      final ordered = grouped.keys.toList()..sort();
 
       setState(() {
-        _grouped = grouped;
-        _orderedBooks = ordered;
-        _initialOpenBookId = ordered.isNotEmpty ? ordered.first : null;
+        _results = rows;
+        _loading = false;
+        _expandedGroups
+          ..clear()
+          ..addAll(nextExpanded);
       });
-    } catch (e) {
+    } catch (_) {
+      if (!mounted) return;
       setState(() {
-        _error = e.toString();
+        _results = const [];
+        _loading = false;
+        _expandedGroups.clear();
       });
-    } finally {
-      if (mounted) setState(() => _loading = false);
     }
   }
 
-  String bookName(int b, {required bool isCn}) {
-    final idx = b - 1;
-    if (idx < 0) return '';
-    return isCn ? bookNamesCn[idx] : bookNamesEn[idx]; // 直接用你 bible.dart 的公开常量
+  void _onChanged(String value) {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 250), () {
+      _searchNow(value);
+    });
   }
 
-  // ⬇️ 跳转到 Bible，并把目标书/章/节传过去
-void _goToBible(_VerseHit v) {
-  Navigator.pop(context, {
-    'b': v.b,
-    'c': v.c,
-    'v': v.v,
-  });
+  void _toggleGroup(String key) {
+    setState(() {
+      if (_expandedGroups.contains(key)) {
+        _expandedGroups.remove(key);
+      } else {
+        _expandedGroups.add(key);
+      }
+    });
+  }
+
+  Map<String, List<BibleSearchResult>> _groupResults(List<BibleSearchResult> rows) {
+    final map = <String, List<BibleSearchResult>>{};
+    for (final row in rows) {
+      final key = _groupKey(row);
+      map.putIfAbsent(key, () => <BibleSearchResult>[]).add(row);
+    }
+    return map;
+  }
+
+TextSpan _highlightTextSpan({
+  required String source,
+  required String query,
+  required TextStyle normalStyle,
+  required TextStyle highlightStyle,
+  required bool caseSensitive,
+}) {
+  final tokens = query
+      .trim()
+      .split(RegExp(r'\s+'))
+      .map((e) => e.trim())
+      .where((e) => e.isNotEmpty)
+      .toSet()
+      .toList();
+
+  if (tokens.isEmpty) {
+    return TextSpan(text: source, style: normalStyle);
+  }
+
+  // 关键：长词优先，避免短词先匹配把长词切碎
+  tokens.sort((a, b) => b.length.compareTo(a.length));
+
+  final pattern = tokens.map(RegExp.escape).join('|');
+  final reg = RegExp(
+    pattern,
+    caseSensitive: caseSensitive,
+    unicode: true,
+  );
+
+  final spans = <TextSpan>[];
+  int start = 0;
+
+  for (final m in reg.allMatches(source)) {
+    if (m.start > start) {
+      spans.add(TextSpan(
+        text: source.substring(start, m.start),
+        style: normalStyle,
+      ));
+    }
+
+    spans.add(TextSpan(
+      text: source.substring(m.start, m.end),
+      style: highlightStyle,
+    ));
+
+    start = m.end;
+  }
+
+  if (start < source.length) {
+    spans.add(TextSpan(
+      text: source.substring(start),
+      style: normalStyle,
+    ));
+  }
+
+  return TextSpan(children: spans);
 }
+
   @override
   Widget build(BuildContext context) {
-    final isCn = LangScope.of(context).lang == 't_cn';
+    final isCn = _normalizeLang(LangScope.of(context).lang) == 't_cn';
     final cs = Theme.of(context).colorScheme;
+    final grouped = _groupResults(_results);
+    final groupKeys = grouped.keys.toList();
 
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
-        title: _SearchBox(
-          controller: _controller,
-          hint: isCn ? '搜索经文…' : 'Search verses…',
-          onSubmitted: _doSearch,
-        ),
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error.isNotEmpty
-              ? _ErrorView(message: _error, onRetry: () => _doSearch(_controller.text))
-              : _orderedBooks.isEmpty
-                  ? Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Text(
-                          isCn ? '输入关键词开始搜索' : 'Type a keyword to search',
-                          style: const TextStyle(fontSize: 16),
-                        ),
-                      ),
-                    )
-                  : ListView(
-                      // ✅ 统一宽度：只保留小边距，卡片占满可用宽度
-                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
-                      children: [
-                        ExpansionPanelList.radio(
-                          expandedHeaderPadding: EdgeInsets.zero,
-                          elevation: 0,
-                          children: _orderedBooks.map((bookId) {
-                            final verses = _grouped[bookId]!;
-                            final title = bookName(bookId, isCn: isCn);
-                            return ExpansionPanelRadio(
-                              value: bookId,
-                              canTapOnHeader: true,
-                              headerBuilder: (_, __) => Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
-                                child: Text(
-                                  title,
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w700,
-                                    color: cs.onSurface,
-                                  ),
-                                ),
-                              ),
-                              body: Column(
-                                children: [
-                                  for (final v in verses)
-                                    // ✅ 让卡片占满：外面包一层 SizedBox 宽度撑满
-                                    SizedBox(
-                                      width: double.infinity,
-                                      child: _VerseCard(
-                                        verse: v,
-                                        query: _word,
-                                        isCn: isCn,
-                                        textColor: cs.onSurface,
-                                        highlightColor: cs.primary,
-                                        onTapVerse: () => _goToBible(v),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            );
-                          }).toList(),
-                          initialOpenPanelValue: _initialOpenBookId,
-                        ),
-                      ],
-                    ),
-    );
-  }
-}
-
-// 顶部输入框（AppBar）
-class _SearchBox extends StatelessWidget {
-  const _SearchBox({
-    required this.controller,
-    required this.hint,
-    required this.onSubmitted,
-  });
-
-  final TextEditingController controller;
-  final String hint;
-  final ValueChanged<String> onSubmitted;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Container(
-      margin: const EdgeInsets.only(right: 12),
-      decoration: BoxDecoration(
-        color: cs.surfaceContainerHighest.withValues(alpha: 0.9),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: TextField(
-        controller: controller,
-        autofocus: true,
-        textInputAction: TextInputAction.search,
-        onSubmitted: onSubmitted,
-        decoration: InputDecoration(
-          hintText: hint,
-          border: InputBorder.none,
-          prefixIcon: const Icon(Icons.search),
-          contentPadding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-        ),
-      ),
-    );
-  }
-}
-
-class _VerseCard extends StatelessWidget {
-  const _VerseCard({
-    required this.verse,
-    required this.query,
-    required this.isCn,
-    required this.textColor,
-    required this.highlightColor,
-    required this.onTapVerse,
-  });
-
-  final _VerseHit verse;
-  final String query;
-  final bool isCn;
-  final Color textColor;
-  final Color highlightColor;
-  final VoidCallback onTapVerse;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      // ✅ 宽度一致：只保留底部间距
-      margin: const EdgeInsets.only(bottom: 12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTapVerse,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // 章/节信息（保持简洁）
- Text(
-  isCn
-      ? '${verse.c} 章${verse.v} 节'
-      : 'Chapter ${verse.c}, Verse ${verse.v}',
-  style: TextStyle(
-    fontWeight: FontWeight.w700,
-    color: textColor,
-    fontSize: 15,
-  ),
-),
-              const SizedBox(height: 8),
-              // ✅ 文字高亮（无背景）
-              RichText(
-                text: _buildHighlightedSpan(
-                  verse.t,
-                  query,
-                  isCn: isCn,
-                  normalStyle: TextStyle(
-                    color: textColor.withOpacity(0.92),
-                    height: 1.35,
-                  ),
-                  highlightStyle: TextStyle(
-                    color: highlightColor,        // ← 仅颜色高亮
-                    fontWeight: FontWeight.w700,  // ← 略加粗
-                    // 无背景、无下划线
-                  ),
-                ),
-              ),
-            ],
+        title: Padding(
+          padding: const EdgeInsets.only(right: 12),
+          child: TextField(
+            controller: _controller,
+            autofocus: true,
+            textInputAction: TextInputAction.search,
+            onChanged: _onChanged,
+            onSubmitted: _searchNow,
+            decoration: InputDecoration(
+              hintText: isCn ? '搜索经文内容' : 'Search verses',
+              border: InputBorder.none,
+            ),
           ),
         ),
       ),
-    );
-  }
+      body: Column(
+        children: [
+          if (_keyword.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+              child: Row(
+                children: [
+                  Text(
+                    isCn
+                        ? '共 ${_results.length} 节，分为 ${groupKeys.length} 章'
+                        : '${_results.length} verses in ${groupKeys.length} chapters',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                ],
+              ),
+            ),
+          Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _keyword.isEmpty
+                    ? Center(
+                        child: Text(
+                          isCn ? '输入关键词开始搜索' : 'Type keywords to search',
+                        ),
+                      )
+                    : _results.isEmpty
+                        ? Center(
+                            child: Text(
+                              isCn ? '没有找到相关经文' : 'No verses found',
+                            ),
+                          )
+                        : ListView.builder(
+                            itemCount: groupKeys.length,
+                            itemBuilder: (context, index) {
+                              final key = groupKeys[index];
+                              final items = grouped[key]!;
+                              final first = items.first;
+                              final expanded = _expandedGroups.contains(key);
+                              final ref =
+                                  '${_bookName(first.bookId, isCn)} ${first.chapter}';
+                              final headerText = isCn
+                                  ? '$ref 章 · ${items.length} 节'
+                                  : '$ref · ${items.length} verses';
 
-  TextSpan _buildHighlightedSpan(
-    String source,
-    String query, {
-    required bool isCn,
-    required TextStyle normalStyle,
-    required TextStyle highlightStyle,
-  }) {
-    if (query.isEmpty) return TextSpan(text: source, style: normalStyle);
+                              final normalStyle = TextStyle(
+                                color: cs.onSurfaceVariant,
+                                height: 1.5,
+                                fontSize: 15,
+                              );
 
-    final reg = RegExp(
-      RegExp.escape(query),
-      caseSensitive: isCn, // 中文区分大小写无意义；英文不区分大小写
-      unicode: true,
-    );
+                              final highlightStyle = const TextStyle(
+                                color: Color(0xFF2E7D32),
+                                backgroundColor: Color(0xFFE8F5E9),
+                                fontWeight: FontWeight.w700,
+                                height: 1.5,
+                                fontSize: 15,
+                              );
 
-    final spans = <TextSpan>[];
-    int start = 0;
-    for (final m in reg.allMatches(source)) {
-      if (m.start > start) {
-        spans.add(TextSpan(text: source.substring(start, m.start), style: normalStyle));
-      }
-      spans.add(TextSpan(text: source.substring(m.start, m.end), style: highlightStyle));
-      start = m.end;
-    }
-    if (start < source.length) {
-      spans.add(TextSpan(text: source.substring(start), style: normalStyle));
-    }
-    return TextSpan(children: spans);
-  }
-}
-
-class _ErrorView extends StatelessWidget {
-  const _ErrorView({required this.message, required this.onRetry});
-  final String message;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(message, textAlign: TextAlign.center),
-            const SizedBox(height: 12),
-            FilledButton(onPressed: onRetry, child: const Text('Retry')),
-          ],
-        ),
+                              return Column(
+                                children: [
+                                  Material(
+                                    color: Colors.transparent,
+                                    child: InkWell(
+                                      onTap: () => _toggleGroup(key),
+                                      child: Padding(
+                                        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                                        child: Row(
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                headerText,
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.w700,
+                                                  fontSize: 16,
+                                                ),
+                                              ),
+                                            ),
+                                            Icon(
+                                              expanded
+                                                  ? Icons.keyboard_arrow_up_rounded
+                                                  : Icons.keyboard_arrow_down_rounded,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  if (expanded)
+                                    ...items.map((item) {
+                                      return InkWell(
+                                        onTap: () {
+                                          Navigator.of(context).pop({
+                                            'b': item.bookId,
+                                            'c': item.chapter,
+                                            'v': item.verse,
+                                          });
+                                        },
+                                        child: Padding(
+                                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                                          child: Row(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              SizedBox(
+                                                width: 42,
+                                                child: Text(
+                                                  '[${item.verse}]',
+                                                  style: TextStyle(
+                                                    color: cs.primary,
+                                                    fontWeight: FontWeight.w700,
+                                                  ),
+                                                ),
+                                              ),
+                                              Expanded(
+                                                child: RichText(
+                                                  text: _highlightTextSpan(
+                                                    source: item.text,
+                                                    query: _keyword,
+                                                    normalStyle: normalStyle,
+                                                    highlightStyle: highlightStyle,
+                                                    caseSensitive: isCn,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      );
+                                    }),
+                                  const Divider(height: 1),
+                                ],
+                              );
+                            },
+                          ),
+          ),
+        ],
       ),
     );
   }
-}
-
-class _VerseHit {
-  final String version; // 't_cn' or 't_kjv'
-  final int b; // book
-  final int c; // chapter
-  final int v; // verse
-  final String t; // text
-
-  _VerseHit({
-    required this.version,
-    required this.b,
-    required this.c,
-    required this.v,
-    required this.t,
-  });
-
-  factory _VerseHit.fromJson(Map<String, dynamic> m) => _VerseHit(
-        version: m['version'] as String,
-        b: (m['b'] as num).toInt(),
-        c: (m['c'] as num).toInt(),
-        v: (m['v'] as num).toInt(),
-        t: m['t'] as String,
-      );
 }
