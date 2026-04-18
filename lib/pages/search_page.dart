@@ -256,14 +256,16 @@ class _VerseCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // 章/节信息（保持简洁）
-              Text(
-                isCn ? '第 ${verse.v} 节' : 'Verse ${verse.v}',
-                style: TextStyle(
-                  fontWeight: FontWeight.w700,
-                  color: textColor,
-                  fontSize: 15,
-                ),
-              ),
+ Text(
+  isCn
+      ? '${verse.c} 章${verse.v} 节'
+      : 'Chapter ${verse.c}, Verse ${verse.v}',
+  style: TextStyle(
+    fontWeight: FontWeight.w700,
+    color: textColor,
+    fontSize: 15,
+  ),
+),
               const SizedBox(height: 8),
               // ✅ 文字高亮（无背景）
               RichText(

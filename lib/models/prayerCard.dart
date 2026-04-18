@@ -261,8 +261,8 @@ class _PrayerCardState extends State<PrayerCard> with AutomaticKeepAliveClientMi
             ),
             FilledButton(
               style: ButtonStyle(
-                backgroundColor: MaterialStateProperty.resolveWith((_) => cs.error),
-                foregroundColor: MaterialStateProperty.resolveWith((_) => cs.onError),
+                backgroundColor: WidgetStateProperty.resolveWith((_) => cs.error),
+                foregroundColor: WidgetStateProperty.resolveWith((_) => cs.onError),
               ),
               onPressed: () => Navigator.of(ctx).pop(true),
               child: Text(deleteLabel ?? (_isCn ? '删除' : 'Delete')),
@@ -338,7 +338,7 @@ class _PrayerCardState extends State<PrayerCard> with AutomaticKeepAliveClientMi
     if (isPrayerOwner) {
       for (final c in _comments) {
         _commentPermissions[c.id] = true;
-        if (viewer != null) _DeletePermCache.set(viewer.id, _prayer.id, c.id, true);
+        _DeletePermCache.set(viewer.id, _prayer.id, c.id, true);
       }
       if (mounted) setState(() {});
       return;
@@ -349,7 +349,7 @@ class _PrayerCardState extends State<PrayerCard> with AutomaticKeepAliveClientMi
       final isMine = viewer != null && (c.userId == viewer.id || (c.userId <= 0 && c.username == viewer.username));
       if (isMine) {
         _commentPermissions[c.id] = true;
-        if (viewer != null) _DeletePermCache.set(viewer.id, _prayer.id, c.id, true);
+        _DeletePermCache.set(viewer.id, _prayer.id, c.id, true);
       }
     }
 
@@ -851,7 +851,7 @@ class _PrayerCardState extends State<PrayerCard> with AutomaticKeepAliveClientMi
                     const SizedBox(height: 10),
                     Divider(color: cs.outlineVariant),
                     const SizedBox(height: 6),
-                    ..._comments.map(_buildCommentTile).toList(),
+                    ..._comments.map(_buildCommentTile),
                   ],
                 ],
               ),
@@ -1262,15 +1262,15 @@ class _PrayerReplyPageState extends State<PrayerReplyPage> {
               onPressed: _canSubmit ? _submit : null,
               style: ButtonStyle(
                 // 绿色可用 / 灰色禁用
-                backgroundColor: MaterialStateProperty.resolveWith((states) {
-                  if (states.contains(MaterialState.disabled)) {
+                backgroundColor: WidgetStateProperty.resolveWith((states) {
+                  if (states.contains(WidgetState.disabled)) {
                     return Colors.grey;
                   }
                   return const Color(0xFF2A9D8F);
                 }),
                 // 始终白字
-                foregroundColor: MaterialStateProperty.resolveWith((_) => Colors.white),
-                padding: MaterialStateProperty.all(const EdgeInsets.symmetric(horizontal: 16)),
+                foregroundColor: WidgetStateProperty.resolveWith((_) => Colors.white),
+                padding: WidgetStateProperty.all(const EdgeInsets.symmetric(horizontal: 16)),
               ),
               child: Text(isCn ? '回复' : 'Reply'),
             ),
