@@ -2,7 +2,13 @@ import 'package:flutter/material.dart';
 import '../app/app_lang.dart'; // ← 引入全局语言
 import '../models/search_bar.dart'; // ← 引入搜索页
 class HomeTab extends StatelessWidget {
-  const HomeTab({super.key});
+  const HomeTab({
+    super.key,
+    required this.onJumpToVerse,
+  });
+
+   final void Function(int b, int c, int v)? onJumpToVerse;
+
 
   @override
   Widget build(BuildContext context) {
@@ -26,7 +32,7 @@ class HomeTab extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            AppSearchBar(), // 搜索栏
+           AppSearchBar(onJumpToVerse: onJumpToVerse), // 搜索栏
 
             // Daily Scripture
             Card(

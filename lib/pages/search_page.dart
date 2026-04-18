@@ -101,12 +101,12 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   // ⬇️ 跳转到 Bible，并把目标书/章/节传过去
- void _goToBible(_VerseHit v) {
-  Navigator.of(context).pushNamedAndRemoveUntil(
-    '/bible',                                // 跳转的路由
-    (Route<dynamic> route) => false,         // 移除栈中所有历史页面
-    arguments: {'b': v.b, 'c': v.c, 'v': v.v}, // 传递参数
-  );
+void _goToBible(_VerseHit v) {
+  Navigator.pop(context, {
+    'b': v.b,
+    'c': v.c,
+    'v': v.v,
+  });
 }
   @override
   Widget build(BuildContext context) {

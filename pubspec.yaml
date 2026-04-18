@@ -39,9 +39,11 @@ dependencies:
   cupertino_icons: ^1.0.8
   http: ^1.2.2
   shared_preferences: ^2.5.3
+  rename_app: ^1.6.5
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  sqflite: ^2.3.3+1
   flutter_launcher_icons: ^0.13.1
   flutter_native_splash: ^2.4.0
 
@@ -59,6 +61,7 @@ dev_dependencies:
 # The following section is specific to Flutter packages.
 flutter:
   assets:
+    - assets/data/bible_flutter.sqlite
     - assets/images/
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in

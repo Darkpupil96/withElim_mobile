@@ -16,10 +16,17 @@ import 'pages/register.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  final auth = AuthController();
-  await auth.tryAutoLogin();
+  final langController = LangController();
+  final authController = AuthController();
 
-  runApp(WithElimApp(authController: auth));
+  await authController.tryAutoLogin();
+
+  runApp(
+    LangScope(
+      controller: langController,
+      child: WithElimApp(authController: authController),
+    ),
+  );
 }
 
 class WithElimApp extends StatefulWidget {
@@ -118,15 +125,23 @@ class _HomeScreenState extends State<HomeScreen> {
 
   final BibleJumpController _bibleCtl = BibleJumpController();
 
-  late final List<Widget> _pages = [
-    const HomeTab(key: PageStorageKey('home')),
-    BiblePage(
-      key: const PageStorageKey('bible'),
-      controller: _bibleCtl,
-    ),
-    const _PrayerTab(key: PageStorageKey('prayer')),
-    const _CommunityTab(key: PageStorageKey('community')),
-  ];
+late final List<Widget> _pages = [
+  HomeTab(
+    key: const PageStorageKey('home'),
+    onJumpToVerse: (b, c, v) {
+      setState(() => _current = 1);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _bibleCtl.jumpTo(b, c, v);
+      });
+    },
+  ),
+  BiblePage(
+    key: const PageStorageKey('bible'),
+    controller: _bibleCtl,
+  ),
+  const _PrayerTab(key: PageStorageKey('prayer')),
+  const _CommunityTab(key: PageStorageKey('community')),
+];
 
   @override
   void initState() {
