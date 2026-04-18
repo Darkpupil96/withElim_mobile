@@ -85,6 +85,11 @@ class _BiblePageState extends State<BiblePage> {
   final Set<int> _highlightedVerses = <int>{};
   final Map<int, Timer> _highlightTimers = {};
 
+  // Prayer selection state
+  final Set<int> _selectedVerseNumbers = <int>{};
+  int? _activeVerseNumber;
+  bool _isPrayerPrivate = false;
+
   // 高亮并在 1s 后恢复
   void _flashVerse(int v, {Duration duration = const Duration(seconds: 1)}) {
     // 若已有定时器，先取消，避免过早清除
@@ -364,6 +369,7 @@ class _BiblePageState extends State<BiblePage> {
   }
 
   void _goPrev() {
+    _clearVerseSelection();
     if (_chapter > 1) {
       setState(() {
         _chapter -= 1;
@@ -389,6 +395,7 @@ class _BiblePageState extends State<BiblePage> {
   }
 
   void _goNext() {
+    _clearVerseSelection();
     final max = _chapterCounts[_bookId - 1];
     if (_chapter < max) {
       setState(() {
@@ -443,6 +450,223 @@ String _chapterCn(int n) {
 
   return '第${toCn(n)}章';
 }
+
+  String _t(String en, String cn) => _lang == 't_cn' ? cn : en;
+
+  String get _currentBookName => _lang == 't_cn'
+      ? bookNamesCn[_bookId - 1]
+      : bookNamesEn[_bookId - 1];
+
+  void _clearVerseSelection() {
+    if (_selectedVerseNumbers.isEmpty && _activeVerseNumber == null) return;
+    setState(() {
+      _selectedVerseNumbers.clear();
+      _activeVerseNumber = null;
+    });
+  }
+
+  void _toggleVerseSelection(_Verse verse) {
+    final auth = AuthScope.of(context);
+    if (!auth.isAuthed) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(_t('Please log in before submitting a prayer.', '请先登录后再提交祷告。'))),
+      );
+      return;
+    }
+
+    setState(() {
+      if (_selectedVerseNumbers.contains(verse.number)) {
+        _selectedVerseNumbers.remove(verse.number);
+        if (_activeVerseNumber == verse.number) {
+          if (_selectedVerseNumbers.isEmpty) {
+            _activeVerseNumber = null;
+          } else {
+            final sorted = _selectedVerseNumbers.toList()..sort();
+            _activeVerseNumber = sorted.last;
+          }
+        }
+      } else {
+        _selectedVerseNumbers.add(verse.number);
+        _activeVerseNumber = verse.number;
+      }
+    });
+  }
+
+  Future<void> _openPrayerDialog(List<_Verse> allVerses) async {
+    final auth = AuthScope.of(context);
+    if (!auth.isAuthed || _selectedVerseNumbers.isEmpty) return;
+
+    final selected = allVerses
+        .where((v) => _selectedVerseNumbers.contains(v.number))
+        .toList()
+      ..sort((a, b) => a.number.compareTo(b.number));
+
+    if (selected.isEmpty) return;
+
+    final titleController = TextEditingController();
+    final contentController = TextEditingController();
+    bool isPrivate = _isPrayerPrivate;
+    bool isSubmitting = false;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final firstFive = selected.take(5).toList();
+            final remaining = selected.skip(5).toList();
+
+            Future<void> submitPrayer() async {
+              if (isSubmitting) return;
+              if (titleController.text.trim().isEmpty ||
+                  contentController.text.trim().isEmpty) {
+                ScaffoldMessenger.of(this.context).showSnackBar(
+                  SnackBar(content: Text(_t('Please enter a title and prayer content.', '请输入祷告标题和内容。'))),
+                );
+                return;
+              }
+
+              setModalState(() => isSubmitting = true);
+              try {
+                final payload = {
+                  'title': titleController.text.trim(),
+                  'content': contentController.text.trim(),
+                  'is_private': isPrivate,
+                  'verses': selected
+                      .map((v) => {
+                            'version': _lang,
+                            'b': _bookId,
+                            'c': _chapter,
+                            'v': v.number,
+                          })
+                      .toList(),
+                };
+
+                final res = await http.post(
+                  Uri.parse('$_baseUrl/api/prayers/'),
+                  headers: _authedJsonHeaders(auth.token!),
+                  body: jsonEncode(payload),
+                );
+
+                if (!mounted) return;
+                if (res.statusCode >= 200 && res.statusCode < 300) {
+                  _isPrayerPrivate = isPrivate;
+                  Navigator.of(dialogContext).pop();
+                  ScaffoldMessenger.of(this.context).showSnackBar(
+                    SnackBar(content: Text(_t('Prayer submitted successfully!', '祷告已提交！'))),
+                  );
+                  _clearVerseSelection();
+                } else {
+                  ScaffoldMessenger.of(this.context).showSnackBar(
+                    SnackBar(content: Text(_t('Submission failed, please try again.', '提交失败，请重试。'))),
+                  );
+                }
+              } catch (_) {
+                if (!mounted) return;
+                ScaffoldMessenger.of(this.context).showSnackBar(
+                  SnackBar(content: Text(_t('Network error, please try again later.', '网络错误，请稍后再试。'))),
+                );
+              } finally {
+                if (mounted) {
+                  setModalState(() => isSubmitting = false);
+                }
+              }
+            }
+
+            return AlertDialog(
+              title: Text(_t('Write your prayer', '写下你的祷告')),
+              content: SizedBox(
+                width: 420,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('$_currentBookName ${_lang == 't_cn' ? _chapterCn(_chapter) : 'Chapter $_chapter'}'),
+                      const SizedBox(height: 12),
+                      ...firstFive.map(
+                        (item) => Padding(
+                          padding: const EdgeInsets.only(bottom: 6),
+                          child: Text('[${item.number}] ${item.text}'),
+                        ),
+                      ),
+                      if (remaining.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2, bottom: 10),
+                          child: Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: [
+                              Text(
+                                _t('Remaining verses:', '其余经文：'),
+                                style: const TextStyle(fontWeight: FontWeight.w700),
+                              ),
+                              ...remaining.map((item) => Text('[${item.number}]')),
+                            ],
+                          ),
+                        ),
+                      TextField(
+                        controller: titleController,
+                        decoration: InputDecoration(
+                          hintText: _t('Prayer Title', '祷告标题'),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(_t('Visibility:', '可见性：')),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: RadioListTile<bool>(
+                              contentPadding: EdgeInsets.zero,
+                              value: false,
+                              groupValue: isPrivate,
+                              title: Text(_t('Public', '公开')),
+                              onChanged: (v) => setModalState(() => isPrivate = v ?? false),
+                            ),
+                          ),
+                          Expanded(
+                            child: RadioListTile<bool>(
+                              contentPadding: EdgeInsets.zero,
+                              value: true,
+                              groupValue: isPrivate,
+                              title: Text(_t('Private', '私密')),
+                              onChanged: (v) => setModalState(() => isPrivate = v ?? true),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      TextField(
+                        controller: contentController,
+                        minLines: 4,
+                        maxLines: 6,
+                        decoration: InputDecoration(
+                          hintText: _t('Enter your prayer here', '请输入你的祷告内容'),
+                          border: const OutlineInputBorder(),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSubmitting ? null : () => Navigator.of(dialogContext).pop(),
+                  child: Text(_t('Cancel', '取消')),
+                ),
+                FilledButton(
+                  onPressed: isSubmitting ? null : submitPrayer,
+                  child: Text(isSubmitting ? _t('Submitting...', '提交中...') : _t('Submit', '提交')),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   Future<void> _openBookChapterPicker() async {
     final picked = await Navigator.push<PickResult>(
       context,
@@ -459,6 +683,7 @@ String _chapterCn(int n) {
     );
 
     if (picked != null) {
+        _clearVerseSelection();
       setState(() {
         _bookId = picked.bookId;
         _chapter = picked.chapter;
@@ -486,9 +711,12 @@ String _chapterCn(int n) {
 
           // 中间：只滚动经文（标题作为第 0 项）
           Expanded(
-            child: !_depsReady
-                ? const Center(child: CircularProgressIndicator())
-                : FutureBuilder<List<_Verse>>(
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onTap: _clearVerseSelection,
+              child: !_depsReady
+                  ? const Center(child: CircularProgressIndicator())
+                  : FutureBuilder<List<_Verse>>(
                     future: _future,
                     builder: (context, snap) {
                       if (snap.connectionState == ConnectionState.waiting) {
@@ -562,6 +790,10 @@ return Align(
     child: _VerseParagraph(
       verse: v,
       highlighted: _highlightedVerses.contains(v.number),
+      selected: _selectedVerseNumbers.contains(v.number),
+      active: _activeVerseNumber == v.number,
+      onTap: () => _toggleVerseSelection(v),
+      onCreatePrayer: () => _openPrayerDialog(verses),
     ),
   ),
 );
@@ -570,6 +802,7 @@ return Align(
                       );
                     },
                   ),
+            ),
           ),
 
           // 底部分割线 + 固定翻章条
@@ -708,44 +941,89 @@ class _Verse {
 }
 
 class _VerseParagraph extends StatelessWidget {
-  const _VerseParagraph({required this.verse, this.highlighted = false});
+  const _VerseParagraph({
+    required this.verse,
+    this.highlighted = false,
+    this.selected = false,
+    this.active = false,
+    this.onTap,
+    this.onCreatePrayer,
+  });
+
   final _Verse verse;
   final bool highlighted;
+  final bool selected;
+  final bool active;
+  final VoidCallback? onTap;
+  final VoidCallback? onCreatePrayer;
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final emphasized = highlighted || selected;
 
-    // 根据 highlighted 切换颜色和粗细
     final body = Theme.of(context).textTheme.bodyMedium?.copyWith(
           fontSize: 20,
           height: 1.6,
-          color: highlighted ? cs.primary : cs.onSurface,
-          fontWeight: highlighted ? FontWeight.w700 : FontWeight.w400,
+         color: emphasized ? Colors.white : cs.onSurface,
+          fontWeight: emphasized ? FontWeight.w500 : FontWeight.w400,
         );
 
     final numberStyle = body?.copyWith(
       fontSize: 12,
-      color: highlighted
-          ? cs.primary.withOpacity(.90)
-          : cs.onSurface.withOpacity(.60),
-      fontWeight: highlighted ? FontWeight.w800 : FontWeight.w600,
+      color: emphasized
+    ? Colors.white.withOpacity(0.9)
+    : cs.onSurface.withOpacity(.60),
+      fontWeight: emphasized ? FontWeight.w800 : FontWeight.w600,
     );
 
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 200),
-      switchInCurve: Curves.easeOut,
-      switchOutCurve: Curves.easeOut,
-      child: Padding(
-        key: ValueKey<bool>(highlighted), // 触发渐变
-        padding: const EdgeInsets.only(bottom: 12),
-        child: RichText(
-          text: TextSpan(
-            children: [
-              TextSpan(text: '[${verse.number}]', style: numberStyle),
-              const TextSpan(text: ' '),
-              TextSpan(text: verse.text, style: body),
-            ],
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: emphasized ? const Color.fromARGB(255, 71, 116, 88): Colors.transparent,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: RichText(
+                    text: TextSpan(
+                      children: [
+                        TextSpan(text: '[${verse.number}]', style: numberStyle),
+                        const TextSpan(text: ' '),
+                        TextSpan(text: verse.text, style: body),
+                      ],
+                    ),
+                  ),
+                ),
+                if (active)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 8, top: 2),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(999),
+                      onTap: onCreatePrayer,
+                      child: Padding(
+                        padding: const EdgeInsets.all(4),
+                        child: Icon(
+                          Icons.note_add_outlined,
+                          size: 35,
+                         color: const Color.fromARGB(255, 210, 233, 224),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),

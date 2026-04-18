@@ -70,7 +70,7 @@ Future<void> _register() async {
         // 3) 写入全局会话 & 切语言
         final auth = AuthScope.of(context);
         final lang = LangScope.of(context);
-        auth.setSession(token, AppUser.fromJson(userJson));
+       await auth.setSession(token, AppUser.fromJson(userJson));
         lang.setLang(userJson['language'] as String? ?? 't_kjv');
 
         // 4) 回到首页

@@ -51,7 +51,7 @@ class _LoginPasswordPageState extends State<LoginPasswordPage> {
 
         // 1) 全局写入会话
         final auth = AuthScope.of(context);
-        auth.setSession(token, AppUser.fromJson(userJson));
+       await auth.setSession(token, AppUser.fromJson(userJson));
 
         // 2) 按用户语言切换 UI
         final lang = LangScope.of(context);
