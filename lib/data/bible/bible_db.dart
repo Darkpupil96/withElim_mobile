@@ -75,7 +75,7 @@ class BibleDb {
  Future<List<BibleSearchResult>> searchVerses({
   required String query,
   required String versionCode,
-  int limit = 200,
+  int limit = 3000,
 }) async {
   final db = await database();
 
