@@ -14,6 +14,7 @@ import 'pages/prayer.dart';
 import 'pages/register.dart';
 
 Future<void> main() async {
+  
   WidgetsFlutterBinding.ensureInitialized();
 
   final langController = LangController();

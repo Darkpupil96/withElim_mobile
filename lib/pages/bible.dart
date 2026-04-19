@@ -1,7 +1,7 @@
 // lib/pages/bible.dart
 import 'dart:async';
 import 'dart:convert';
-
+import 'prayer_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:http/http.dart' as http;
@@ -737,44 +737,44 @@ class _BiblePageState extends State<BiblePage> {
     });
   }
 
-  Future<void> _openPrayerDialog(List<BibleVerse> allVerses) async {
-    final auth = AuthScope.of(context);
-    if (!auth.isAuthed || _selectedVerseNumbers.isEmpty) return;
+Future<void> _openPrayerDialog(List<BibleVerse> allVerses) async {
+  final auth = AuthScope.of(context);
+  if (!auth.isAuthed || _selectedVerseNumbers.isEmpty) return;
 
-    final selected = allVerses
-        .where((v) => _selectedVerseNumbers.contains(v.verse))
-        .toList()
-      ..sort((a, b) => a.verse.compareTo(b.verse));
+  final selected = allVerses
+      .where((v) => _selectedVerseNumbers.contains(v.verse))
+      .toList()
+    ..sort((a, b) => a.verse.compareTo(b.verse));
 
-    if (selected.isEmpty) return;
+  if (selected.isEmpty) return;
 
-    final bool? submitted = await showDialog<bool>(
-      context: context,
-      barrierDismissible: true,
-      builder: (dialogContext) {
-        return _PrayerDialog(
-          lang: _lang,
-          bookId: _bookId,
-          chapter: _chapter,
-          currentBookName: _currentBookName,
-          isPrayerPrivate: _isPrayerPrivate,
-          selected: selected,
-          token: auth.token!,
-          chapterCnBuilder: _chapterCn,
-          tr: _t,
-        );
-      },
+  final bool? submitted = await Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => PrayerPage(
+        lang: _lang,
+        bookId: _bookId,
+        chapter: _chapter,
+        currentBookName: _currentBookName,
+        isPrayerPrivate: _isPrayerPrivate,
+        selected: selected,
+        token: auth.token!,
+        chapterCnBuilder: _chapterCn,
+        tr: _t,
+      ),
+      fullscreenDialog: true, // 👉 iOS风格滑入
+    ),
+  );
+
+  if (!mounted) return;
+
+  if (submitted == true) {
+    _clearVerseSelection();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(_t('Prayer submitted successfully!', '祷告已提交！'))),
     );
-
-    if (!mounted) return;
-
-    if (submitted == true) {
-      _clearVerseSelection();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_t('Prayer submitted successfully!', '祷告已提交！'))),
-      );
-    }
   }
+}
 
   Future<void> _openBookChapterPicker() async {
     final picked = await Navigator.push<PickResult>(
@@ -1151,236 +1151,5 @@ class _VerseParagraph extends StatelessWidget {
   }
 }
 
-class _PrayerDialog extends StatefulWidget {
-  const _PrayerDialog({
-    required this.lang,
-    required this.bookId,
-    required this.chapter,
-    required this.currentBookName,
-    required this.isPrayerPrivate,
-    required this.selected,
-    required this.token,
-    required this.chapterCnBuilder,
-    required this.tr,
-  });
 
-  final String lang;
-  final int bookId;
-  final int chapter;
-  final String currentBookName;
-  final bool isPrayerPrivate;
-  final List<BibleVerse> selected;
-  final String token;
-  final String Function(int) chapterCnBuilder;
-  final String Function(String en, String cn) tr;
 
-  @override
-  State<_PrayerDialog> createState() => _PrayerDialogState();
-}
-
-class _PrayerDialogState extends State<_PrayerDialog> {
-  late final TextEditingController _titleController;
-  late final TextEditingController _contentController;
-
-  late bool _isPrivate;
-  bool _isSubmitting = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _titleController = TextEditingController();
-    _contentController = TextEditingController();
-    _isPrivate = widget.isPrayerPrivate;
-  }
-
-  @override
-  void dispose() {
-    _titleController.dispose();
-    _contentController.dispose();
-    super.dispose();
-  }
-
-  Map<String, String> _authedJsonHeaders(String token) => {
-        'Authorization': 'Bearer $token',
-        'Content-Type': 'application/json',
-      };
-
-  Future<void> _submitPrayer() async {
-    if (_isSubmitting) return;
-
-    if (_titleController.text.trim().isEmpty ||
-        _contentController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            widget.tr('Please enter a title and prayer content.', '请输入祷告标题和内容。'),
-          ),
-        ),
-      );
-      return;
-    }
-
-    setState(() => _isSubmitting = true);
-
-    try {
-      final payload = {
-        'title': _titleController.text.trim(),
-        'content': _contentController.text.trim(),
-        'is_private': _isPrivate,
-        'verses': widget.selected
-            .map((v) => {
-                  'version': widget.lang,
-                  'b': widget.bookId,
-                  'c': widget.chapter,
-                  'v': v.verse,
-                })
-            .toList(),
-      };
-
-      final res = await http.post(
-        Uri.parse('$_baseUrl/api/prayers/'),
-        headers: _authedJsonHeaders(widget.token),
-        body: jsonEncode(payload),
-      );
-
-      if (!mounted) return;
-
-      if (res.statusCode >= 200 && res.statusCode < 300) {
-        Navigator.of(context).pop(true);
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              '${widget.tr('Submission failed, please try again.', '提交失败，请重试。')} (${res.statusCode})',
-            ),
-          ),
-        );
-      }
-    } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            widget.tr('Network error, please try again later.', '网络错误，请稍后再试。'),
-          ),
-        ),
-      );
-    } finally {
-      if (mounted) {
-        setState(() => _isSubmitting = false);
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final firstFive = widget.selected.take(5).toList();
-    final remaining = widget.selected.skip(5).toList();
-
-    return Dialog(
-      insetPadding: EdgeInsets.zero,
-      child: SizedBox.expand(
-        child: Scaffold(
-          appBar: AppBar(
-            title: Text(widget.tr('Write your prayer', '写下你的祷告')),
-            leading: IconButton(
-              icon: const Icon(Icons.close),
-              onPressed: () => Navigator.of(context).pop(false),
-            ),
-            actions: [
-              TextButton(
-                onPressed: _isSubmitting ? null : _submitPrayer,
-                child: Text(
-                  _isSubmitting
-                      ? widget.tr('Submitting...', '提交中...')
-                      : widget.tr('Submit', '提交'),
-                ),
-              )
-            ],
-          ),
-          body: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '${widget.currentBookName} ${widget.lang == 't_cn' ? widget.chapterCnBuilder(widget.chapter) : 'Chapter ${widget.chapter}'}',
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _titleController,
-                      decoration: InputDecoration(
-                        hintText: widget.tr('Prayer Title', '祷告标题'),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(widget.tr('Visibility:', '可见性：')),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: RadioListTile<bool>(
-                            value: false,
-                            groupValue: _isPrivate,
-                            title: Text(widget.tr('Public', '公开')),
-                            onChanged: (v) => setState(() => _isPrivate = v!),
-                          ),
-                        ),
-                        Expanded(
-                          child: RadioListTile<bool>(
-                            value: true,
-                            groupValue: _isPrivate,
-                            title: Text(widget.tr('Private', '私密')),
-                            onChanged: (v) => setState(() => _isPrivate = v!),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _contentController,
-                      minLines: 6,
-                      maxLines: 10,
-                      decoration: InputDecoration(
-                        hintText: widget.tr('Enter your prayer here', '请输入你的祷告内容'),
-                        border: const OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      widget.tr('Selected verses:', '引用经文：'),
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    const SizedBox(height: 8),
-                    ...firstFive.map(
-                      (item) => Padding(
-                        padding: const EdgeInsets.only(bottom: 6),
-                        child: Text('[${item.verse}] ${item.text}'),
-                      ),
-                    ),
-                    if (remaining.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 6),
-                        child: Wrap(
-                          spacing: 6,
-                          runSpacing: 6,
-                          children: [
-                            Text(
-                              widget.tr('Remaining:', '其余：'),
-                              style: const TextStyle(fontWeight: FontWeight.w600),
-                            ),
-                            ...remaining.map((item) => Text('[${item.verse}]')),
-                          ],
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
