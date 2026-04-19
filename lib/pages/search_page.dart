@@ -520,7 +520,7 @@ class _SearchPageState extends State<SearchPage> {
                                                     Expanded(
                                                       child: Text(
                                                         isCn
-                                                            ? '$chapter 章'
+                                                            ? '第$chapter 章'
                                                             : 'Chapter $chapter',
                                                         style: const TextStyle(
                                                           fontWeight:
@@ -531,8 +531,8 @@ class _SearchPageState extends State<SearchPage> {
                                                     ),
                                                     Text(
                                                       isCn
-                                                          ? '${items.length} 节'
-                                                          : '${items.length} verses',
+                                                          ? '共${items.length} 节'
+                                                          : '${items.length} verses in total',
                                                       style: TextStyle(
                                                         color:
                                                             cs.onSurfaceVariant,
