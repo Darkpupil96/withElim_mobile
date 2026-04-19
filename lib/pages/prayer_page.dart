@@ -152,9 +152,7 @@ class _PrayerPageState extends State<PrayerPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                '${widget.currentBookName} ${widget.lang == 't_cn' ? widget.chapterCnBuilder(widget.chapter) : 'Chapter ${widget.chapter}'}',
-              ),
+             
               const SizedBox(height: 12),
 
               /// 标题
@@ -204,12 +202,12 @@ class _PrayerPageState extends State<PrayerPage> {
               ),
 
               const SizedBox(height: 16),
-
+ 
+              
               /// 经文
               Text(widget.tr('Selected verses:', '引用经文'),
                   style: const TextStyle(fontWeight: FontWeight.bold)),
-
-              const SizedBox(height: 8),
+                   const SizedBox(height: 12),
 
               ...firstFive.map((v) => Text('[${v.verse}] ${v.text}')),
 
